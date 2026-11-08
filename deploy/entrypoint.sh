@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Sobe Python → .NET → nginx; se qualquer processo morrer, o container encerra (e é reiniciado).
 set -eu
 
