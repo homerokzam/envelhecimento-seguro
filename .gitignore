@@ -20,12 +20,35 @@ npm-debug.log*
 backend/webapi-python/data/
 data/*.csv
 
-# Ambiente e segredos
+# Ambiente e segredos (repositório público: nunca versionar credenciais)
 .env
 .env.*
+!.env.example
+appsettings.*.json
+!appsettings.json
+secrets.json
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.pub
+.aspire/
+
+# IDE e editores
+.idea/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+*.swp
+
+# Cópias duplicadas do macOS/iCloud (ex.: "style 2.css")
+* 2.*
+* 2
 
 # Ferramentas locais
-.claude/settings.local.json
+.claude/
 .playwright-mcp/
 graphify-out/
 
