@@ -1,0 +1,9 @@
+[project]
+name = "envelhecimento-seguro-analytics"
+version = "0.1.0"
+requires-python = ">=3.14,<3.15"
+# A API de consulta só usa a biblioteca padrão; o ETL (download do SUS) exige o extra "etl".
+dependencies = []
+
+[project.optional-dependencies]
+etl = ["pysus>=2.11.7", "pandas>=2.2.2,<3"]

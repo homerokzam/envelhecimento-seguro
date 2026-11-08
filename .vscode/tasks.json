@@ -1,0 +1,30 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Executar (Aspire)",
+      "type": "shell",
+      "command": "npm --prefix frontend/webapp ci && dotnet run --project aspire/EnvelhecimentoSeguro.AppHost",
+      "options": {
+        "env": {
+          "PYTHON_EXECUTABLE": "/Users/homerokzam/.local/bin/python3.14"
+        }
+      },
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "build apphost",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/aspire/EnvelhecimentoSeguro.AppHost"
+      ],
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}

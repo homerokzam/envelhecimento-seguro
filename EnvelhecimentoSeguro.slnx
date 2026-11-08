@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="aspire/EnvelhecimentoSeguro.AppHost/EnvelhecimentoSeguro.AppHost.csproj" />
+  <Project Path="backend/webapi/EnvelhecimentoSeguro.WebApi.csproj" />
+</Solution>

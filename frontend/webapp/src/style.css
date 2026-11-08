@@ -1,0 +1,7 @@
+body { margin: 0; background: #f3f6f5; color: #143536; }
+.shell { width: min(1200px, calc(100% - 32px)); margin: 0 auto; }
+.hero { background: #09272e; color: #f3fff9; border-bottom: 4px solid #6fd0b7; padding: 40px 0 28px; margin-bottom: 24px; }
+.hero h1 { margin: 0 0 4px; font-size: clamp(2rem, 5vw, 3.2rem); letter-spacing: -0.03em; }
+.hero p { margin: 0; color: #b8d3ce; }
+.hero .eyebrow { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.12em; margin-bottom: 8px; }
+.foot { color: #4c6668; font-size: 0.85rem; padding: 16px 0 32px; }
