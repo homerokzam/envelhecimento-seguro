@@ -14,6 +14,8 @@ from .transform import DIAG_FIELDS, REQUIRED_FIELDS, UF_BY_CODE, aggregate
 log = logging.getLogger(__name__)
 
 GROUP = "RD"
+FETCH_ATTEMPTS = 3
+FETCH_BACKOFF = 5  # segundos, multiplicado pela tentativa
 REFRESH_MONTHS = 6  # meses mais recentes são rebaixados na atualização (o SIH reprocessa)
 UFS = sorted(UF_BY_CODE.values())
 FILE_FIELDS = REQUIRED_FIELDS + ("COD_IDADE",) + DIAG_FIELDS
@@ -36,13 +38,31 @@ def read_month(uf, year, month, cache_dir):
     """Baixa um arquivo RD e devolve os registros relevantes (pré-filtrados em pandas)."""
     import pysus  # noqa: PLC0415
 
-    pysus.set_cache(Path(cache_dir) / "raw")
+    raw = Path(cache_dir) / "raw"
+    pysus.set_cache(raw)
+    name = f"RD{uf}{year % 100:02d}{month:02d}"
     started = time.time()
-    frame = pysus.sih(state=uf, year=year, month=month, group=GROUP, as_dataframe=True)
+    frame = None
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            frame = pysus.sih(state=uf, year=year, month=month, group=GROUP, as_dataframe=True)
+            problem = None if frame is not None and len(frame) else f"retorno {type(frame).__name__} vazio"
+        except Exception as error:  # noqa: BLE001
+            frame, problem = None, f"{type(error).__name__}: {error}"
+        if problem is None:
+            break
+        # Download parcial/vazio fica no cache bruto e seria relido sem baixar de novo: apaga e tenta outra vez.
+        stale = [f for f in raw.rglob("*") if f.is_file() and name in f.name.upper()] if raw.exists() else []
+        for f in stale:
+            f.unlink(missing_ok=True)
+        log.warning("%s: tentativa %d/%d falhou (%s); %d arquivo(s) brutos removidos do cache",
+                    name, attempt, FETCH_ATTEMPTS, problem, len(stale))
+        if attempt < FETCH_ATTEMPTS:
+            time.sleep(FETCH_BACKOFF * attempt)
     if frame is None or len(frame) == 0:
         # Um arquivo RD de UF×mês nunca é vazio de verdade: tratar como zero envenenaria o cache.
-        raise RuntimeError(f"Arquivo RD{uf}{year % 100:02d}{month:02d} veio vazio ou ausente do PySUS "
-                           "(não foi gravado no cache; tente novamente).")
+        raise RuntimeError(f"Arquivo {name} veio vazio ou ausente do PySUS após {FETCH_ATTEMPTS} tentativas "
+                           f"({problem}); não foi gravado no cache.")
     total_rows = len(frame)
     columns = [c for c in FILE_FIELDS if c in frame.columns]
     frame = frame[columns].astype(str)
