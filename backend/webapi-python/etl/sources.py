@@ -27,6 +27,11 @@ def agg_path(cache_dir, uf, year, month):
     return Path(cache_dir) / "agg" / f"RD{uf}{year % 100:02d}{month:02d}.json"
 
 
+class Records(list):
+    """Registros relevantes de um arquivo, com o total de linhas lidas (`total_rows`)."""
+    total_rows = None
+
+
 def read_month(uf, year, month, cache_dir):
     """Baixa um arquivo RD e devolve os registros relevantes (pré-filtrados em pandas)."""
     import pysus  # noqa: PLC0415
@@ -35,8 +40,9 @@ def read_month(uf, year, month, cache_dir):
     started = time.time()
     frame = pysus.sih(state=uf, year=year, month=month, group=GROUP, as_dataframe=True)
     if frame is None or len(frame) == 0:
-        log.warning("RD%s%02d%02d: arquivo vazio ou ausente no PySUS", uf, year % 100, month)
-        return []
+        # Um arquivo RD de UF×mês nunca é vazio de verdade: tratar como zero envenenaria o cache.
+        raise RuntimeError(f"Arquivo RD{uf}{year % 100:02d}{month:02d} veio vazio ou ausente do PySUS "
+                           "(não foi gravado no cache; tente novamente).")
     total_rows = len(frame)
     columns = [c for c in FILE_FIELDS if c in frame.columns]
     frame = frame[columns].astype(str)
@@ -56,7 +62,9 @@ def read_month(uf, year, month, cache_dir):
              "n/d" if principal is None else int(principal.sum()),
              int((mask & normal).sum()), int((mask & ~normal).sum()),
              sorted(set(FILE_FIELDS) - set(columns)), time.time() - started)
-    return frame[mask & normal].to_dict("records")
+    records = Records(frame[mask & normal].to_dict("records"))
+    records.total_rows = total_rows
+    return records
 
 
 def load_month(uf, year, month, cache_dir, refresh=False, fetch=read_month):
@@ -64,17 +72,23 @@ def load_month(uf, year, month, cache_dir, refresh=False, fetch=read_month):
     path = agg_path(cache_dir, uf, year, month)
     if path.exists() and not refresh:
         saved = json.loads(path.read_text(encoding="utf-8"))
-        return decode(saved), saved["excluded"], False
-    cells, excluded = aggregate(fetch(uf, year, month, cache_dir))
+        if saved["cells"] or saved.get("rows"):
+            return decode(saved), saved["excluded"], False
+        # Agregado vazio sem contagem de linhas: gravado por versão antiga que tratava arquivo vazio
+        # como zero. Baixa de novo em vez de confiar no zero.
+        log.warning("RD%s%02d%02d: agregado vazio suspeito no cache; baixando novamente", uf, year % 100, month)
+    records = fetch(uf, year, month, cache_dir)
+    cells, excluded = aggregate(records)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(encode(cells, excluded), ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps(encode(cells, excluded, getattr(records, "total_rows", None)),
+                                ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)
     return cells, {str(k): dict(v) for k, v in excluded.items()}, True
 
 
-def encode(cells, excluded):
-    return {"cells": [[*key, dict(value)] for key, value in cells.items()],
+def encode(cells, excluded, rows=None):
+    return {"rows": rows, "cells": [[*key, dict(value)] for key, value in cells.items()],
             "excluded": {str(k): dict(v) for k, v in excluded.items()}}
 
 

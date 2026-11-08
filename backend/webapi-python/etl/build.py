@@ -93,7 +93,7 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
     log.info("Piloto %d por UF de residência dos arquivos lidos: %s", pilot.PILOT_YEAR, dict(sorted(by_uf.items())))
     empty = sorted(k for k, (count, _o) in pilot_files.items() if count == 0)
     if empty:
-        log.warning("Arquivos de %d sem nenhuma queda 60+: %s", pilot.PILOT_YEAR, empty)
+        log.warning("Arquivos de %d sem nenhuma queda 60+: %d (primeiros 20: %s)", pilot.PILOT_YEAR, len(empty), empty[:20])
     sex_i = sum(c["admissions"] for (y, _u, _a, sx), c in cells.items() if y == pilot.PILOT_YEAR and sx == "I")
     log.info("Piloto %d: internações com sexo ignorado=%d (entram no total, mas não em M/F)", pilot.PILOT_YEAR, sex_i)
     totals_2024 = pilot.totals(cells)
