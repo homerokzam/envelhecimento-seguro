@@ -8,12 +8,11 @@ Requisitos: SDK .NET 10, [uv](https://docs.astral.sh/uv/) com Python 3.14 e Node
 
 ```sh
 npm --prefix frontend/webapp ci
-(cd backend/webapi-python && uv venv --python 3.14 && uv pip install -e ".[etl]")
-PYTHON_EXECUTABLE="$PWD/backend/webapi-python/.venv/bin/python" \
-  dotnet run --project aspire/EnvelhecimentoSeguro.AppHost
+(cd backend/webapi-python && uv sync --extra etl --python 3.14)
+dotnet run --project aspire/EnvelhecimentoSeguro.AppHost
 ```
 
-No painel do Aspire, abra o endpoint de `webapp`. `PYTHON_EXECUTABLE` deve apontar para um Python 3.14 com PySUS instalado (o extra `etl`); a API de consulta em si só usa a biblioteca padrão.
+No painel do Aspire, abra o endpoint de `webapp`. O AppHost usa `backend/webapi-python/.venv` (criado pelo `uv sync`) quando existe; senão cai no `python3.14` do PATH, que precisaria ter PySUS e pandas. `PYTHON_EXECUTABLE` força outro interpretador. A API de consulta em si só usa a biblioteca padrão; o PySUS só é exigido no download.
 
 ## Arquitetura
 

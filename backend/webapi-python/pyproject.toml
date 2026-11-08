@@ -7,3 +7,6 @@ dependencies = []
 
 [project.optional-dependencies]
 etl = ["pysus>=2.11.7", "pandas>=2.2.2,<3"]
+
+[tool.uv]
+package = false

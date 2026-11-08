@@ -2,8 +2,12 @@ using Aspire.Hosting;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
+// Prefere o .venv do serviço (tem PySUS e pandas); senão usa o python3.14 do PATH.
+var venvPython = Path.GetFullPath(Path.Combine(builder.AppHostDirectory,
+    "../../backend/webapi-python/.venv/bin/python"));
 var python = builder.AddExecutable("analytics",
-        builder.Configuration["PYTHON_EXECUTABLE"] ?? "python3.14", "../../backend/webapi-python",
+        builder.Configuration["PYTHON_EXECUTABLE"] ?? (File.Exists(venvPython) ? venvPython : "python3.14"),
+        "../../backend/webapi-python",
         "-m", "analytics.server")
     .WithHttpEndpoint(env: "PORT")
     .WithEnvironment("DATA_DIR", builder.Configuration["DATA_DIR"] ?? "")
