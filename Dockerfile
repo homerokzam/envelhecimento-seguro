@@ -16,9 +16,19 @@ WORKDIR /src
 COPY backend/webapi ./backend/webapi
 RUN dotnet publish backend/webapi/EnvelhecimentoSeguro.WebApi.csproj -c Release -o /out /p:UseAppHost=false
 
-# ---- 3. Runtime ----
-FROM python:3.14-slim
+# ---- 3. Venv Python (fastparquet não tem wheel p/ 3.14: compila com git + gcc, fora da imagem final) ----
+FROM python:3.14-slim AS pyenv
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /bin/
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git build-essential \
+ && rm -rf /var/lib/apt/lists/*
+ENV UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/app/py/.venv
+WORKDIR /app/py
+COPY backend/webapi-python/pyproject.toml backend/webapi-python/uv.lock ./
+RUN uv sync --locked --extra etl --no-install-project
+
+# ---- 4. Runtime ----
+FROM python:3.14-slim
 COPY --from=mcr.microsoft.com/dotnet/aspnet:10.0 /usr/share/dotnet /usr/share/dotnet
 
 ENV DOTNET_ROOT=/usr/share/dotnet \
@@ -26,8 +36,6 @@ ENV DOTNET_ROOT=/usr/share/dotnet \
     DOTNET_gcServer=0 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy \
-    UV_PROJECT_ENVIRONMENT=/app/py/.venv \
     PATH="/usr/share/dotnet:/app/py/.venv/bin:$PATH" \
     DATA_DIR=/data \
     TZ=America/Sao_Paulo
@@ -38,8 +46,7 @@ RUN apt-get update \
 
 # Python: extra "etl" (PySUS + pandas) para o botão de atualização dos dados.
 WORKDIR /app/py
-COPY backend/webapi-python/pyproject.toml backend/webapi-python/uv.lock ./
-RUN uv sync --locked --extra etl --no-install-project
+COPY --from=pyenv /app/py/.venv ./.venv
 COPY backend/webapi-python/analytics ./analytics
 COPY backend/webapi-python/etl ./etl
 
