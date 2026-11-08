@@ -1,0 +1,133 @@
+name: Deploy (Docker + SaveInCloud)
+
+# Mesmo modelo do Gelati: push de tag v* builda a imagem e publica no ghcr.io; o job deploy
+# transfere o docker-compose + .env para o servidor, faz `pull` e (aqui) sobe o stack.
+# Secret necessário: SSH_PRIVATE_KEY (chave autorizada no nó 277867-16962).
+# workflow_dispatch reusa uma imagem já publicada (image_tag), sem rebuildar.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Tag da imagem já publicada no ghcr (ex.: v261108)'
+        type: string
+        required: true
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  SSH_HOST: gate.paas.saveincloud.net.br
+  SSH_USER: 277867-16962
+  SSH_PORT: 3022
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.img.outputs.image }}
+    steps:
+      - name: Define imagem
+        id: img
+        run: |
+          owner_lc=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          if [ "${{ github.event_name }}" = "push" ]; then version="${GITHUB_REF_NAME}"; else version="${{ inputs.image_tag }}"; fi
+          echo "image=${REGISTRY}/${owner_lc}/envelhecimento-seguro:${version}" >> "$GITHUB_OUTPUT"
+
+  test:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: dotnet build backend/webapi/EnvelhecimentoSeguro.WebApi.csproj
+      - run: npm --prefix frontend/webapp ci && npm --prefix frontend/webapp run build
+      - run: python -m unittest -v test_analytics
+        working-directory: backend/webapi-python
+
+  build:
+    needs: [prepare, test]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ needs.prepare.outputs.image }}
+
+  deploy:
+    needs: [prepare, build]
+    if: always() && needs.prepare.result == 'success' && needs.build.result != 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Gerar docker-compose + .env
+        run: |
+          cat > docker-compose.yaml <<'EOF'
+          services:
+            app:
+              image: ${APP_IMAGE}
+              container_name: envelhecimento-seguro
+              restart: unless-stopped
+              ports:
+                - "80:80"
+              volumes:
+                - data-envelhecimento:/data
+          volumes:
+            data-envelhecimento:
+          EOF
+          echo "APP_IMAGE=${{ needs.prepare.outputs.image }}" > .env
+
+      - name: Copiar compose + .env
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ env.SSH_PORT }}
+          source: "docker-compose.yaml,.env"
+          target: "~/envelhecimento-seguro"
+
+      - name: Pull e up no servidor
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        with:
+          host: ${{ env.SSH_HOST }}
+          username: ${{ env.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ env.SSH_PORT }}
+          envs: GHCR_TOKEN,GHCR_USER
+          script: |
+            cd "$HOME/envelhecimento-seguro"
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            docker compose -p envelhecimento-seguro pull
+            docker compose -p envelhecimento-seguro up -d
