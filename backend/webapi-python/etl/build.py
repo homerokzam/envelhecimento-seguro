@@ -3,12 +3,15 @@ import csv
 import datetime as dt
 import hashlib
 import json
+import logging
 import os
 from collections import Counter
 from pathlib import Path
 
 from analytics import store
 from analytics.data import FIELDS, load
+
+log = logging.getLogger(__name__)
 
 from . import pilot, population, sources
 from .transform import merge_cells, to_rows
@@ -58,6 +61,7 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
         except Exception as error:  # noqa: BLE001
             if year < latest:
                 raise
+            log.warning("Falha em RD%s%02d%02d (ano %s ainda em curso): %s", uf, year % 100, month, year, error)
             failed_years[year] = f"{uf} {month:02d}: {error}"  # ano em curso/ainda incompleto
             continue
         downloaded += fresh
@@ -67,6 +71,9 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
     complete = [y for y in years if y not in failed_years]
     cells = merge_cells(parts)
 
+    totals_2024 = pilot.totals(cells)
+    log.info("Células agregadas: %d | arquivos ignorados por ano com falha: %s | totais 2024: %s",
+             len(cells), sorted(failed_years), json.dumps(totals_2024, ensure_ascii=False))
     notify(total, total, "Conciliando piloto com o TABNET")
     report = pilot.compare(pilot.totals(cells))
     pilot.write_report(report, directory)

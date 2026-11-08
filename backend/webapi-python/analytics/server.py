@@ -2,6 +2,7 @@
 import csv
 import io
 import json
+import logging
 import os
 import threading
 import time
@@ -75,6 +76,7 @@ class Job:
         except ModuleNotFoundError as error:
             result = {"state": "error", "error": f"Dependência ausente ({error.name}). Instale pysus e pandas."}
         except Exception as error:  # noqa: BLE001
+            logging.getLogger("analytics.job").exception("Download da base falhou")
             result = {"state": "error", "error": str(error)}
         with self.lock:
             self.info.update(result)
@@ -166,6 +168,8 @@ def create_handler(state, job):
 
 
 def main():
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"),
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     state = State(store.data_dir())
     job = Job(state)
     with ThreadingHTTPServer(("127.0.0.1", int(os.environ.get("PORT", "8091"))),

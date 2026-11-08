@@ -6,7 +6,10 @@ Diferença > 1% em internações bloqueia a carga completa.
 """
 import csv
 import json
+import logging
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 TOLERANCE = 0.01
 PILOT_YEAR = 2024
@@ -32,6 +35,7 @@ def totals(cells):
 def compare(ours, tabnet_path=TABNET):
     path = Path(tabnet_path)
     if not path.is_file():
+        log.error("Piloto: arquivo de referência ausente: %s", path)
         return {"ok": False, "reason": f"Preencha {path} com os valores do TABNET.", "scopes": {}}
     theirs = {}
     with path.open(encoding="utf-8-sig", newline="") as file:
@@ -51,6 +55,11 @@ def compare(ours, tabnet_path=TABNET):
         else:
             passed = abs(diff["internacoes"]) <= TOLERANCE
         scopes[scope] = {"ok": passed, "rd": mine, "tabnet": ref, "diferenca_relativa": diff}
+        pct = diff["internacoes"]
+        log.log(logging.INFO if passed else logging.ERROR,
+                "Piloto %s: %s | internações RD=%s TABNET=%s diferença=%s (tolerância %.1f%%) | óbitos RD=%s TABNET=%s",
+                scope, "OK" if passed else "DIVERGENTE", mine["internacoes"], ref["internacoes"],
+                "n/d" if pct is None else f"{pct:+.2%}", TOLERANCE * 100, mine["obitos"], ref["obitos"])
         ok = ok and passed
     return {"ok": ok, "tolerancia_internacoes": TOLERANCE, "ano": PILOT_YEAR, "scopes": scopes}
 
