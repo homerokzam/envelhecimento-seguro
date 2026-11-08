@@ -51,6 +51,9 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
     latest = max(years)
     cutoff = latest * 12 + 12 - sources.REFRESH_MONTHS  # meses recentes são rebaixados na atualização
     parts, excluded, downloaded, failed_years = [], {}, 0, {}
+    cached_files, pilot_files = 0, {}
+    log.info("Iniciando carga: anos %s-%s, %d arquivos, refresh=%s, cache=%s",
+             min(years), latest, total, refresh, cache)
     for done, (uf, year, month) in enumerate(files, 1):
         if year in failed_years:
             continue
@@ -65,12 +68,34 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
             failed_years[year] = f"{uf} {month:02d}: {error}"  # ano em curso/ainda incompleto
             continue
         downloaded += fresh
+        cached_files += not fresh
+        if year == pilot.PILOT_YEAR:
+            pilot_files[(uf, month)] = (sum(c["admissions"] for c in cells.values()), "baixado" if fresh else "cache")
         parts.append(cells)
+        if done % 100 == 0:
+            log.info("Progresso: %d/%d arquivos (baixados=%d, cache=%d)", done, total, downloaded, cached_files)
         for y, counters in exc.items():
             excluded.setdefault(int(y), Counter()).update(counters)
     complete = [y for y in years if y not in failed_years]
     cells = merge_cells(parts)
 
+    log.info("Arquivos: baixados=%d, do cache=%d, ignorados=%d", downloaded, cached_files, total - len(parts))
+    by_year = Counter()
+    for (year, _uf, _age, _sex), c in cells.items():
+        by_year[year] += c["admissions"]
+    log.info("Internações por ano (Brasil): %s", dict(sorted(by_year.items())))
+    log.info("Exclusões por ano: %s", {y: dict(c) for y, c in sorted(excluded.items())})
+    by_month, by_uf = Counter(), Counter()
+    for (uf, month), (count, _origin) in pilot_files.items():
+        by_month[month] += count
+        by_uf[uf] += count
+    log.info("Piloto %d por mês (soma das UFs): %s", pilot.PILOT_YEAR, dict(sorted(by_month.items())))
+    log.info("Piloto %d por UF de residência dos arquivos lidos: %s", pilot.PILOT_YEAR, dict(sorted(by_uf.items())))
+    empty = sorted(k for k, (count, _o) in pilot_files.items() if count == 0)
+    if empty:
+        log.warning("Arquivos de %d sem nenhuma queda 60+: %s", pilot.PILOT_YEAR, empty)
+    sex_i = sum(c["admissions"] for (y, _u, _a, sx), c in cells.items() if y == pilot.PILOT_YEAR and sx == "I")
+    log.info("Piloto %d: internações com sexo ignorado=%d (entram no total, mas não em M/F)", pilot.PILOT_YEAR, sex_i)
     totals_2024 = pilot.totals(cells)
     log.info("Células agregadas: %d | arquivos ignorados por ano com falha: %s | totais 2024: %s",
              len(cells), sorted(failed_years), json.dumps(totals_2024, ensure_ascii=False))

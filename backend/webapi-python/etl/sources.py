@@ -4,10 +4,14 @@ Cada arquivo UF×ano×mês vira um agregado pequeno em cache (JSON). O arquivo b
 precisa ser mantido; o cache de agregados é o que torna a atualização incremental.
 """
 import json
+import logging
+import time
 from collections import Counter
 from pathlib import Path
 
 from .transform import DIAG_FIELDS, REQUIRED_FIELDS, UF_BY_CODE, aggregate
+
+log = logging.getLogger(__name__)
 
 GROUP = "RD"
 REFRESH_MONTHS = 6  # meses mais recentes são rebaixados na atualização (o SIH reprocessa)
@@ -28,9 +32,12 @@ def read_month(uf, year, month, cache_dir):
     import pysus  # noqa: PLC0415
 
     pysus.set_cache(Path(cache_dir) / "raw")
+    started = time.time()
     frame = pysus.sih(state=uf, year=year, month=month, group=GROUP, as_dataframe=True)
     if frame is None or len(frame) == 0:
+        log.warning("RD%s%02d%02d: arquivo vazio ou ausente no PySUS", uf, year % 100, month)
         return []
+    total_rows = len(frame)
     columns = [c for c in FILE_FIELDS if c in frame.columns]
     frame = frame[columns].astype(str)
     mask = None
@@ -40,7 +47,16 @@ def read_month(uf, year, month, cache_dir):
             mask = hit if mask is None else mask | hit
     if mask is None:
         raise RuntimeError(f"Arquivo RD{uf}{year}{month:02d} sem campos de diagnóstico.")
-    return frame[mask & (frame["IDENT"].str.strip() == "1")].to_dict("records")
+    normal = frame["IDENT"].str.strip() == "1"
+    principal = (frame["DIAG_PRINC"].str.strip().str.upper().str.match(r"^W(0\d|1\d)")
+                 if "DIAG_PRINC" in frame.columns else None)
+    log.info("RD%s%02d%02d: linhas=%d | queda em qualquer diagnóstico=%d (só principal=%s) | "
+             "destas IDENT=1=%d, IDENT!=1=%d | colunas ausentes=%s | %.1fs",
+             uf, year % 100, month, total_rows, int(mask.sum()),
+             "n/d" if principal is None else int(principal.sum()),
+             int((mask & normal).sum()), int((mask & ~normal).sum()),
+             sorted(set(FILE_FIELDS) - set(columns)), time.time() - started)
+    return frame[mask & normal].to_dict("records")
 
 
 def load_month(uf, year, month, cache_dir, refresh=False, fetch=read_month):
