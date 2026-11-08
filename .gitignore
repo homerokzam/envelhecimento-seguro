@@ -55,3 +55,6 @@ graphify-out/
 # Sistema e logs
 .DS_Store
 *.log
+
+# Instruções locais do Claude Code (não publicar)
+CLAUDE.md
