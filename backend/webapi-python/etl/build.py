@@ -17,7 +17,8 @@ from . import pilot, population, sources
 from .transform import merge_cells, to_rows
 
 FIRST_YEAR = 2015
-CID = "W00–W19 em qualquer campo de diagnóstico (DIAG_PRINC, DIAG_SECUN, DIAGSEC1–9); AIH tipo 1"
+CID = ("Diagnóstico principal com lesão (CID-10 S00–T98) e causa externa W00–W19 em campo secundário "
+       "(DIAG_SECUN, DIAGSEC1–9), como na tabela de causas externas do TABNET; AIH tipo 1")
 
 
 class PilotBlocked(RuntimeError):

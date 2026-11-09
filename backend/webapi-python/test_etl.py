@@ -20,11 +20,22 @@ def aih(**kw):
 
 
 class TransformTests(unittest.TestCase):
-    def test_fall_in_any_diagnosis_field_not_only_principal(self):
+    def test_fall_needs_injury_principal_and_w_code_in_secondary_field(self):
         self.assertTrue(is_fall(aih()))
         self.assertTrue(is_fall(aih(DIAG_SECUN="", DIAGSEC3="W00")))
+        self.assertTrue(is_fall(aih(DIAG_PRINC="T07", DIAG_SECUN="", DIAGSEC9="W19")))
         self.assertFalse(is_fall(aih(DIAG_SECUN="V01", DIAG_PRINC="S720")))
         self.assertFalse(is_fall(aih(DIAG_SECUN="W20")))
+        # queda só como informação adicional de internação por outro motivo (critério do TABNET)
+        self.assertFalse(is_fall(aih(DIAG_PRINC="J189", DIAG_SECUN="", DIAGSEC1="W19")))
+        self.assertFalse(is_fall(aih(DIAG_PRINC="W19", DIAG_SECUN="")))
+
+    def test_counts_fall_without_injury_as_exclusion_only_inside_the_study_population(self):
+        other = aih(DIAG_PRINC="J189", DIAG_SECUN="W19")
+        cells, excluded = aggregate([aih(), other, aih(**{"IDADE": "40", "DIAG_PRINC": "J189"}),
+                                     aih(MUNIC_RES="999999", DIAG_PRINC="J189")])
+        self.assertEqual(sum(c["admissions"] for c in cells.values()), 1)
+        self.assertEqual(excluded[2024]["queda_sem_lesao_principal"], 1)
 
     def test_age_bands_and_age_codes(self):
         self.assertEqual([age_band(a) for a in (59, 60, 69, 70, 79, 80, 105)],
@@ -49,6 +60,32 @@ class TransformTests(unittest.TestCase):
 
 TABNET_SAMPLE = '<PRE>\n"Unidade da Federa&ccedil;&atilde;o";"60 a 69 anos";"70 a 79 anos";"80 anos e mais";"Total"\n' + "".join(
     f'"{code} X";{i + 1}0;{i + 1}1;{i + 1}2;{(i + 1) * 3}\n' for i, code in enumerate(UF_BY_CODE)) + '"Total";1;1;1;3\n&\n</PRE>'
+
+
+class CacheRuleTests(unittest.TestCase):
+    def test_cache_is_reused_only_for_the_current_case_rule(self):
+        import json
+        import tempfile
+        from etl import sources
+        from etl.transform import CASE_RULE
+
+        calls = []
+
+        def fetch(*args):
+            calls.append(args[:3])
+            return [aih()]
+
+        with tempfile.TemporaryDirectory() as d:
+            sources.load_month("DF", 2024, 1, d, fetch=fetch)
+            sources.load_month("DF", 2024, 1, d, fetch=fetch)
+            self.assertEqual(len(calls), 1)  # segunda leitura veio do cache
+            path = sources.agg_path(d, "DF", 2024, 1)
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(saved["rule"], CASE_RULE)
+            saved.pop("rule")
+            path.write_text(json.dumps(saved), encoding="utf-8")  # agregado de regra antiga
+            sources.load_month("DF", 2024, 1, d, fetch=fetch)
+            self.assertEqual(len(calls), 2)
 
 
 class PopulationTests(unittest.TestCase):

@@ -33,7 +33,7 @@ Sem base carregada, o painel mostra "Nenhuma base carregada" e o botão **Baixar
 
 Definição (conforme o planejamento da pesquisa):
 
-- **Caso:** AIH tipo 1 (`IDENT=1`) com CID-10 W00–W19 em qualquer campo de diagnóstico (`DIAG_PRINC`, `DIAG_SECUN`, `DIAGSEC1–9`), nunca só o principal.
+- **Caso:** AIH tipo 1 (`IDENT=1`) cujo diagnóstico principal (`DIAG_PRINC`) é uma lesão (CID-10 S00–T98) e que traz a causa externa W00–W19 em campo secundário (`DIAG_SECUN`, `DIAGSEC1–9`). É o mesmo critério da tabela de causas externas do TABNET, por isso o piloto concilia. Internações por outro motivo com a queda só como informação adicional não entram e são contadas nas exclusões (`queda_sem_lesao_principal`).
 - **Recorte:** 60 anos ou mais (60–69, 70–79, 80+), UF de **residência** (`MUNIC_RES`), ano de **processamento** (`ANO_CMPT`), só anos completos.
 - **População:** projeção IBGE/Ministério da Saúde, edição 2024 (TABNET `projpop2024uf`), por UF, sexo e faixa 60–69, 70–79 e 80+. O ETL consulta o TABNET sozinho, uma vez por ano e sexo, e guarda o resultado em `data/cache/population_tabnet_2024.json`. Alternativa manual: informe um CSV em `POPULATION_CSV` (UTF-8, `year,uf,sex,age,population`, idade simples 0–90; 90 = 90+), que tem prioridade sobre o TABNET.
 - **Sexo ignorado:** entra em "Ambos" nas contagens e na taxa total, sem população no denominador; o total aparece em nota e no CSV exportado.
@@ -51,7 +51,7 @@ DF,0,0,0,0
 SP,0,0,0,0
 ```
 
-Consulta no TABNET: Morbidade hospitalar do SUS → Causas externas, por local de residência → categoria "Quedas", 60 anos ou mais, 2024. Diferença superior a 1% em internações bloqueia a publicação; o relatório fica em `data/pilot_report.json`. Confirme também que a faixa "Quedas" do TABNET corresponde a W00–W19.
+Consulta no TABNET: Morbidade hospitalar do SUS → Causas externas, por local de residência → categoria "Quedas", 60 anos ou mais, 2024. Diferença superior a 1% em internações bloqueia a publicação; o relatório fica em `data/pilot_report.json`. A faixa "Quedas" do TABNET corresponde a W00–W19 como causa externa de uma internação por lesão (conferido com os arquivos RD do DF de 2024).
 
 ## Verificar
 

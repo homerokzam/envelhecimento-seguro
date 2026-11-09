@@ -5,18 +5,17 @@ precisa ser mantido; o cache de agregados é o que torna a atualização increme
 """
 import json
 import logging
-import re
 import time
 from collections import Counter
 from pathlib import Path
 
-from .transform import DIAG_FIELDS, REQUIRED_FIELDS, UF_BY_CODE, aggregate
+from .transform import (CASE_RULE, DIAG_FIELDS, INJURY, REQUIRED_FIELDS, UF_BY_CODE, aggregate,
+                        has_fall_code)
 
 log = logging.getLogger(__name__)
 
 GROUP = "RD"
 FETCH_ATTEMPTS = 3
-FALL_CODE = re.compile(r"^W(0\d|1\d)")
 FETCH_BACKOFF = 5  # segundos, multiplicado pela tentativa
 REFRESH_MONTHS = 6  # meses mais recentes são rebaixados na atualização (o SIH reprocessa)
 UFS = sorted(UF_BY_CODE.values())
@@ -73,9 +72,9 @@ def read_month_ftp(uf, year, month, cache_dir):
             total += 1
             if _text(row.get("IDENT")) != "1":
                 continue
-            if not any(FALL_CODE.match(_text(row.get(f)).upper()) for f in DIAG_FIELDS):
-                continue
-            records.append({k: _text(v) for k, v in row.items() if k in wanted})
+            record = {k: _text(v) for k, v in row.items() if k in wanted}
+            if has_fall_code(record):  # superconjunto da regra de caso; aggregate() aplica is_fall e conta a exclusão
+                records.append(record)
         records.total_rows = total
         log.info("%s (FTP direto): dbc=%d bytes, linhas=%d, quedas IDENT=1=%d | %.1fs",
                  name, size, total, len(records), time.time() - started)
@@ -131,12 +130,12 @@ def _read_month_pysus(uf, year, month, cache_dir):
     if mask is None:
         raise RuntimeError(f"Arquivo RD{uf}{year}{month:02d} sem campos de diagnóstico.")
     normal = frame["IDENT"].str.strip() == "1"
-    principal = (frame["DIAG_PRINC"].str.strip().str.upper().str.match(r"^W(0\d|1\d)")
-                 if "DIAG_PRINC" in frame.columns else None)
-    log.info("RD%s%02d%02d: linhas=%d | queda em qualquer diagnóstico=%d (só principal=%s) | "
+    injury = (frame["DIAG_PRINC"].str.strip().str.upper().str.match(INJURY.pattern)
+              if "DIAG_PRINC" in frame.columns else None)
+    log.info("RD%s%02d%02d: linhas=%d | W00–W19 em qualquer diagnóstico=%d (com lesão S/T no principal=%s) | "
              "destas IDENT=1=%d, IDENT!=1=%d | colunas ausentes=%s | %.1fs",
              uf, year % 100, month, total_rows, int(mask.sum()),
-             "n/d" if principal is None else int(principal.sum()),
+             "n/d" if injury is None else int((mask & injury).sum()),
              int((mask & normal).sum()), int((mask & ~normal).sum()),
              sorted(set(FILE_FIELDS) - set(columns)), time.time() - started)
     records = Records(frame[mask & normal].to_dict("records"))
@@ -149,11 +148,11 @@ def load_month(uf, year, month, cache_dir, refresh=False, fetch=read_month):
     path = agg_path(cache_dir, uf, year, month)
     if path.exists() and not refresh:
         saved = json.loads(path.read_text(encoding="utf-8"))
-        if saved["cells"] or saved.get("rows"):
+        if saved.get("rule") == CASE_RULE:
             return decode(saved), saved["excluded"], False
-        # Agregado vazio sem contagem de linhas: gravado por versão antiga que tratava arquivo vazio
-        # como zero. Baixa de novo em vez de confiar no zero.
-        log.warning("RD%s%02d%02d: agregado vazio suspeito no cache; baixando novamente", uf, year % 100, month)
+        # Agregado de outra definição de caso (ou de versão antiga que gravava arquivo vazio como zero).
+        log.warning("RD%s%02d%02d: agregado de regra antiga (%s), reprocessando", uf, year % 100, month,
+                    saved.get("rule"))
     records = fetch(uf, year, month, cache_dir)
     cells, excluded = aggregate(records)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +164,7 @@ def load_month(uf, year, month, cache_dir, refresh=False, fetch=read_month):
 
 
 def encode(cells, excluded, rows=None):
-    return {"rows": rows, "cells": [[*key, dict(value)] for key, value in cells.items()],
+    return {"rule": CASE_RULE, "rows": rows, "cells": [[*key, dict(value)] for key, value in cells.items()],
             "excluded": {str(k): dict(v) for k, v in excluded.items()}}
 
 

@@ -16,13 +16,31 @@ UF_BY_CODE = {
     "42": "SC", "43": "RS", "50": "MS", "51": "MT", "52": "GO", "53": "DF",
 }
 FALL = re.compile(r"^W(0\d|1\d)")  # CID-10 W00–W19
+INJURY = re.compile(r"^[ST]\d")  # CID-10 capítulo XIX (S00–T98): lesões
 DIAG_FIELDS = ("DIAG_PRINC", "DIAG_SECUN") + tuple(f"DIAGSEC{i}" for i in range(1, 10))
 REQUIRED_FIELDS = ("ANO_CMPT", "IDENT", "IDADE", "SEXO", "MUNIC_RES", "MORTE", "DIAS_PERM", "VAL_TOT")
+# Versão da definição de caso. Muda quando a regra muda; agregados em cache de outra versão são refeitos.
+CASE_RULE = "tabnet-v1"
+
+
+def _code(record, field):
+    return str(record.get(field) or "").strip().upper()
+
+
+def has_fall_code(record):
+    """W00–W19 em algum campo de diagnóstico (pré-filtro; não basta para ser caso)."""
+    return any(FALL.match(_code(record, f)) for f in DIAG_FIELDS)
 
 
 def is_fall(record):
-    """Queda se qualquer campo de diagnóstico tiver W00–W19, não só o principal."""
-    return any(FALL.match(str(record.get(f) or "").strip().upper()) for f in DIAG_FIELDS)
+    """Internação por queda, no mesmo critério do TABNET (Morbidade Hospitalar por Causas Externas).
+
+    O diagnóstico principal é uma lesão (capítulo XIX, S00–T98) e a causa externa W00–W19 está em
+    algum campo secundário (DIAG_SECUN, DIAGSEC1–9). Internação por outro motivo com a queda só
+    registrada como informação adicional não é caso.
+    """
+    return bool(INJURY.match(_code(record, "DIAG_PRINC"))) and any(
+        FALL.match(_code(record, f)) for f in DIAG_FIELDS[1:])
 
 
 def age_in_years(record):
@@ -64,7 +82,7 @@ def aggregate(records):
     for record in records:
         if str(record.get("IDENT") or "").strip() not in ("1", "1.0"):
             continue  # só AIH normal; continuação de longa permanência não é nova internação
-        if not is_fall(record):
+        if not has_fall_code(record):
             continue
         try:
             year = int(float(record.get("ANO_CMPT")))
@@ -81,6 +99,9 @@ def aggregate(records):
         uf = UF_BY_CODE.get(str(record.get("MUNIC_RES") or "").strip()[:2])
         if uf is None:
             excluded[year]["residencia_invalida_ou_exterior"] += 1
+            continue
+        if not is_fall(record):
+            excluded[year]["queda_sem_lesao_principal"] += 1  # queda registrada, internação por outro motivo
             continue
         cell = cells[(year, uf, band, sex_of(record))]
         cell["admissions"] += 1

@@ -6,6 +6,7 @@ const LABELS: Record<string, string> = {
   idade_ignorada: 'idade ignorada',
   residencia_invalida_ou_exterior: 'residência no exterior ou inválida',
   ano_invalido: 'ano inválido',
+  queda_sem_lesao_principal: 'queda registrada em internação por outro motivo (diagnóstico principal não é lesão)',
 }
 
 export function Notes({ data }: { data: Dashboard }) {
