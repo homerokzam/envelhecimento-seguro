@@ -45,8 +45,12 @@ def read_month(uf, year, month, cache_dir):
     frame = None
     for attempt in range(1, FETCH_ATTEMPTS + 1):
         try:
-            frame = pysus.sih(state=uf, year=year, month=month, group=GROUP, as_dataframe=True)
-            problem = None if frame is not None and len(frame) else f"retorno {type(frame).__name__} vazio"
+            # 1ª tentativa no espelho S3 (rápido); o espelho às vezes devolve DataFrame vazio para arquivos que
+            # existem no FTP, então as demais vão direto à origem (FTP do DATASUS).
+            source = "catalog" if attempt == 1 else "origin"
+            frame = pysus.ftp.sih(state=uf, year=year, month=month, group=GROUP, as_dataframe=True,
+                                  source=source)
+            problem = None if frame is not None and len(frame) else f"retorno {type(frame).__name__} vazio (source={source})"
         except Exception as error:  # noqa: BLE001
             frame, problem = None, f"{type(error).__name__}: {error}"
         if problem is None:
