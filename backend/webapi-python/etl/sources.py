@@ -5,6 +5,7 @@ precisa ser mantido; o cache de agregados é o que torna a atualização increme
 """
 import json
 import logging
+import re
 import time
 from collections import Counter
 from pathlib import Path
@@ -15,6 +16,7 @@ log = logging.getLogger(__name__)
 
 GROUP = "RD"
 FETCH_ATTEMPTS = 3
+FALL_CODE = re.compile(r"^W(0\d|1\d)")
 FETCH_BACKOFF = 5  # segundos, multiplicado pela tentativa
 REFRESH_MONTHS = 6  # meses mais recentes são rebaixados na atualização (o SIH reprocessa)
 UFS = sorted(UF_BY_CODE.values())
@@ -34,39 +36,90 @@ class Records(list):
     total_rows = None
 
 
-def read_month(uf, year, month, cache_dir):
-    """Baixa um arquivo RD e devolve os registros relevantes (pré-filtrados em pandas)."""
-    import pysus  # noqa: PLC0415
+FTP_HOST = "ftp.datasus.gov.br"
+FTP_DIR = "/dissemin/publicos/SIHSUS/200801_/Dados"
 
-    raw = Path(cache_dir) / "raw"
-    pysus.set_cache(raw)
+
+def _text(value):
+    return value.replace(b"\x00", b"").decode("cp1252", "replace").strip() if isinstance(value, bytes) else str(value or "").strip()
+
+
+def read_month_ftp(uf, year, month, cache_dir):
+    """Lê um arquivo RD direto do FTP do DATASUS (sem o catálogo do PySUS) e filtra quedas IDENT=1.
+
+    Usado quando o PySUS devolve vazio para um arquivo que existe no FTP. Baixa o .dbc, converte
+    para .dbf com pyreaddbc e lê em fluxo com dbfread; os temporários são apagados ao final.
+    """
+    import ftplib  # noqa: PLC0415
+    from dbfread import DBF  # noqa: PLC0415
+    from pyreaddbc import dbc2dbf  # noqa: PLC0415
+
     name = f"RD{uf}{year % 100:02d}{month:02d}"
+    work = Path(cache_dir) / "ftp"
+    work.mkdir(parents=True, exist_ok=True)
+    dbc, dbf = work / f"{name}.dbc", work / f"{name}.dbf"
     started = time.time()
-    frame = None
+    try:
+        with ftplib.FTP(FTP_HOST, timeout=120) as ftp:
+            ftp.login()
+            ftp.cwd(FTP_DIR)
+            with dbc.open("wb") as out:
+                ftp.retrbinary(f"RETR {name}.dbc", out.write)
+        size = dbc.stat().st_size
+        dbc2dbf(str(dbc), str(dbf))
+        total, records = 0, Records()
+        wanted = set(FILE_FIELDS)
+        for row in DBF(str(dbf), encoding="cp1252", raw=True, load=False):
+            total += 1
+            if _text(row.get("IDENT")) != "1":
+                continue
+            if not any(FALL_CODE.match(_text(row.get(f)).upper()) for f in DIAG_FIELDS):
+                continue
+            records.append({k: _text(v) for k, v in row.items() if k in wanted})
+        records.total_rows = total
+        log.info("%s (FTP direto): dbc=%d bytes, linhas=%d, quedas IDENT=1=%d | %.1fs",
+                 name, size, total, len(records), time.time() - started)
+        return records
+    finally:
+        dbc.unlink(missing_ok=True)
+        dbf.unlink(missing_ok=True)
+
+
+def read_month(uf, year, month, cache_dir):
+    """Devolve os registros relevantes de um arquivo RD: PySUS primeiro, FTP direto como alternativa."""
+    name = f"RD{uf}{year % 100:02d}{month:02d}"
+    try:
+        records = _read_month_pysus(uf, year, month, cache_dir)
+        if records is not None:
+            return records
+        problem = "PySUS devolveu DataFrame vazio"
+    except Exception as error:  # noqa: BLE001
+        problem = f"PySUS falhou: {type(error).__name__}: {error}"
+    log.warning("%s: %s; tentando o FTP do DATASUS diretamente", name, problem)
     for attempt in range(1, FETCH_ATTEMPTS + 1):
         try:
-            # 1ª tentativa no espelho S3 (rápido); o espelho às vezes devolve DataFrame vazio para arquivos que
-            # existem no FTP, então as demais vão direto à origem (FTP do DATASUS).
-            source = "catalog" if attempt == 1 else "origin"
-            frame = pysus.ftp.sih(state=uf, year=year, month=month, group=GROUP, as_dataframe=True,
-                                  source=source)
-            problem = None if frame is not None and len(frame) else f"retorno {type(frame).__name__} vazio (source={source})"
+            records = read_month_ftp(uf, year, month, cache_dir)
+            if records.total_rows:
+                return records
+            problem = "arquivo do FTP sem linhas"
         except Exception as error:  # noqa: BLE001
-            frame, problem = None, f"{type(error).__name__}: {error}"
-        if problem is None:
-            break
-        # Download parcial/vazio fica no cache bruto e seria relido sem baixar de novo: apaga e tenta outra vez.
-        stale = [f for f in raw.rglob("*") if f.is_file() and name in f.name.upper()] if raw.exists() else []
-        for f in stale:
-            f.unlink(missing_ok=True)
-        log.warning("%s: tentativa %d/%d falhou (%s); %d arquivo(s) brutos removidos do cache",
-                    name, attempt, FETCH_ATTEMPTS, problem, len(stale))
+            problem = f"FTP falhou: {type(error).__name__}: {error}"
+        log.warning("%s: tentativa FTP %d/%d falhou (%s)", name, attempt, FETCH_ATTEMPTS, problem)
         if attempt < FETCH_ATTEMPTS:
             time.sleep(FETCH_BACKOFF * attempt)
+    # Um arquivo RD de UF×mês nunca é vazio de verdade: tratar como zero envenenaria o cache.
+    raise RuntimeError(f"Arquivo {name} indisponível no PySUS e no FTP ({problem}); não foi gravado no cache.")
+
+
+def _read_month_pysus(uf, year, month, cache_dir):
+    """Registros via PySUS, ou None se o retorno vier vazio."""
+    import pysus  # noqa: PLC0415
+
+    pysus.set_cache(Path(cache_dir) / "raw")
+    started = time.time()
+    frame = pysus.ftp.sih(state=uf, year=year, month=month, group=GROUP, as_dataframe=True)
     if frame is None or len(frame) == 0:
-        # Um arquivo RD de UF×mês nunca é vazio de verdade: tratar como zero envenenaria o cache.
-        raise RuntimeError(f"Arquivo {name} veio vazio ou ausente do PySUS após {FETCH_ATTEMPTS} tentativas "
-                           f"({problem}); não foi gravado no cache.")
+        return None
     total_rows = len(frame)
     columns = [c for c in FILE_FIELDS if c in frame.columns]
     frame = frame[columns].astype(str)
