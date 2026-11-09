@@ -6,6 +6,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { App } from './App'
 import './style.css'
 
+// Aba aberta durante um deploy: o index antigo aponta para chunks que não existem mais. Recarrega uma vez.
+window.addEventListener('vite:preloadError', () => {
+  try {
+    if (sessionStorage.getItem('chunk-reload') === '1') return
+    sessionStorage.setItem('chunk-reload', '1')
+  } catch { /* sem sessionStorage: recarrega mesmo assim */ }
+  window.location.reload()
+})
+
 const client = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false, staleTime: 30_000 } } })
 
 createRoot(document.getElementById('root')!).render(
