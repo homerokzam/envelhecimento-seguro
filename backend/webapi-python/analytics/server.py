@@ -10,7 +10,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from . import store
-from .data import dashboard, load, parse_filters, reference_weights, years_of
+from .profile import load_municipalities, load_profile, municipalities_payload, profile_payload
+from .data import SOURCE, dashboard, load, parse_filters, reference_weights, years_of
 
 EXPECTED_FILES = 27 * 12 * 10  # estimativa exibida antes do primeiro download (2015–2024)
 
@@ -22,6 +23,7 @@ class State:
         self.directory = directory
         self.lock = threading.Lock()
         self.rows, self.weights, self.metadata = (), None, None
+        self.profile, self.municipalities = None, None
         self.reload()
 
     def reload(self):
@@ -30,16 +32,26 @@ class State:
             return
         path, manifest = found
         rows = load(path)
+        # Versões antigas não têm perfil nem municípios: o painel mostra o aviso para atualizar a base.
+        profile = load_profile(path.with_name("profile.csv"), rows) if path.with_name("profile.csv").exists() else None
+        municipalities = (load_municipalities(path.with_name("municipios.csv"), rows)
+                          if path.with_name("municipios.csv").exists() else None)
         meta = {key: manifest.get(key) for key in (
             "version", "createdAt", "source", "pysusVersion", "populationEdition", "caseDefinition",
             "unit", "years", "incompleteYears", "exclusions", "ignoredSexAdmissions")}
+        meta["source"] = SOURCE  # a citação vem do código: bases antigas também mostram as fontes originais
         meta["pilotOk"] = bool(manifest.get("pilot", {}).get("ok"))
         with self.lock:
             self.rows, self.weights, self.metadata = rows, reference_weights(rows), meta
+            self.profile, self.municipalities = profile, municipalities
 
     def snapshot(self):
         with self.lock:
             return self.rows, self.weights, self.metadata
+
+    def extras(self):
+        with self.lock:
+            return self.profile, self.municipalities
 
 
 class Job:
@@ -139,6 +151,11 @@ def create_handler(state, job):
                                      "Filtros inválidos. Confira o período, a UF, a faixa etária e o sexo."})
                 return
             result = dashboard(rows, filters, metadata, weights)
+            if url.path == "/dashboard":
+                profile, municipalities = state.extras()
+                result["profile"] = profile_payload(profile, filters) if profile is not None else {"available": False}
+                result["municipalities"] = (municipalities_payload(municipalities, filters)
+                                            if municipalities is not None else {"available": False})
             if url.path == "/dashboard":
                 self.send_json(200, result)
                 return

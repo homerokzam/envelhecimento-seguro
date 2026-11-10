@@ -54,7 +54,40 @@ export interface Dashboard {
   series: Item[]
   ages: Item[]
   sexes: Item[]
+  profile: Profile
+  municipalities: Municipalities
 }
+
+export interface ProfileItem {
+  key: string
+  label: string
+  admissions: number
+  deaths: number
+  mortality: number | null
+  meanStay: number | null
+  meanApproved: number | null
+  share: number | null
+  lowVolume: boolean
+  byYear?: Record<string, number>
+}
+
+export interface ProfileDim {
+  key: string
+  title: string
+  ordered: boolean
+  total: number
+  items: ProfileItem[]
+}
+
+export type Profile = { available: false } | { available: true; dims: ProfileDim[] }
+
+export interface MunicipalityItem extends Omit<ProfileItem, 'key' | 'label' | 'byYear'> {
+  code: string
+  uf: string
+  name: string
+}
+
+export type Municipalities = { available: false } | { available: true; withCases: number; total: number; top: MunicipalityItem[] }
 
 export interface EmptyDashboard {
   empty: true

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Filters } from '../api/types'
 
-export type TabKey = 'panorama' | 'evolucao' | 'impacto'
+export type TabKey = 'panorama' | 'evolucao' | 'perfil' | 'impacto'
 export type Indicator = 'rate' | 'standardRate'
 
 interface UiState extends Filters {

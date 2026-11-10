@@ -27,7 +27,9 @@ React (antd, Plotly) → /api (proxy do Vite) → Web API C#/.NET 10 → API Pyt
 - O painel sempre lê uma **versão congelada** da base. Cada carga gera uma nova versão e a troca é atômica; ficam a versão ativa e a anterior.
 - Frontend em TypeScript: antd (interface), Plotly (`plotly.js` + `react-plotly.js`, carregado sob demanda), zustand (estado dos filtros), TanStack Query + axios (dados do servidor).
 
-## Dados reais (SIH/SUS via PySUS)
+## Dados reais (SIH/SUS, DATASUS)
+
+Fontes originais: Ministério da Saúde/DATASUS, Sistema de Informações Hospitalares do SUS (SIH/SUS, arquivos RD, FTP `ftp.datasus.gov.br`) e projeção populacional MS/SEIDIGI/DEMAS (IBGE) pelo TABNET. O PySUS é só a ferramenta de acesso.
 
 Sem base carregada, o painel mostra "Nenhuma base carregada" e o botão **Baixar dados do SUS**. O download nunca começa sozinho: a carga completa são cerca de 3.240 arquivos mensais por UF (2015–2024, mais anos completos seguintes), leva horas e ocupa alguns GB em `backend/webapi-python/data/cache`. O botão **Atualizar dados** processa o que falta e rebaixa os 6 meses mais recentes (o SIH reprocessa meses recentes). Se uma carga falha, a versão anterior continua ativa. Pela linha de comando: `cd backend/webapi-python && python -m etl build [--refresh]`.
 
@@ -36,6 +38,7 @@ Definição (conforme o planejamento da pesquisa):
 - **Caso:** AIH tipo 1 (`IDENT=1`) cujo diagnóstico principal (`DIAG_PRINC`) é uma lesão (CID-10 S00–T98) e que traz a causa externa W00–W19 em campo secundário (`DIAG_SECUN`, `DIAGSEC1–9`). É o mesmo critério da tabela de causas externas do TABNET, por isso o piloto concilia. Internações por outro motivo com a queda só como informação adicional não entram e são contadas nas exclusões (`queda_sem_lesao_principal`).
 - **Recorte:** 60 anos ou mais (60–69, 70–79, 80+), UF de **residência** (`MUNIC_RES`), ano de **processamento** (`ANO_CMPT`), só anos completos.
 - **População:** projeção IBGE/Ministério da Saúde, edição 2024 (TABNET `projpop2024uf`), por UF, sexo e faixa 60–69, 70–79 e 80+. O ETL consulta o TABNET sozinho, uma vez por ano e sexo, e guarda o resultado em `data/cache/population_tabnet_2024.json`. Alternativa manual: informe um CSV em `POPULATION_CSV` (UTF-8, `year,uf,sex,age,population`, idade simples 0–90; 90 = 90+), que tem prioridade sobre o TABNET.
+- **Perfil clínico e hospitalar:** além do estrato ano × UF × faixa × sexo, a carga grava `profile.csv` (formato longo: `year,uf,age,sex,dim,value` + internações, óbitos, dias e valor) com dez dimensões: tipo de lesão (S/T no principal), tipo de queda (W00–W19), mês e dia da semana da internação (`DT_INTER`), caráter (`CAR_INT`), tipo de procedimento (`PROC_REA`), UTI (`UTI_MES_TO`), motivo de saída (`COBRANCA`), natureza jurídica do hospital (`NAT_JUR`) e raça/cor (`RACA_COR`). Em cada estrato os valores de cada dimensão somam exatamente a base principal (validado ao carregar). `municipios.csv` traz o total por município de residência (nomes do IBGE), sem taxa, pois a projeção não tem população municipal. Bases anteriores a isso não têm os dois arquivos e mostram o aviso para atualizar.
 - **Sexo ignorado:** entra em "Ambos" nas contagens e na taxa total, sem população no denominador; o total aparece em nota e no CSV exportado.
 - **Exclusões** (idade ignorada, residência no exterior ou inválida) são contadas por ano no `manifest.json` e exibidas nas notas do painel.
 - **Rastreabilidade:** o `manifest.json` guarda versão, data, versão do PySUS, edição da população, definição de caso, exclusões, resultado do piloto e hash do CSV; ele é repetido no cabeçalho (`#`) do CSV exportado e no rodapé dos gráficos em PNG.

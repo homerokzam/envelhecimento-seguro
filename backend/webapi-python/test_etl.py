@@ -9,7 +9,7 @@ from analytics import store
 from analytics.data import FIELDS, load
 from etl import build, pilot
 from etl.population import fetch_tabnet, parse_tabnet
-from etl.transform import UF_BY_CODE, age_band, aggregate, is_fall, to_rows
+from etl.transform import UF_BY_CODE, age_band, aggregate, is_fall, profile_of, to_rows
 
 
 def aih(**kw):
@@ -32,7 +32,7 @@ class TransformTests(unittest.TestCase):
 
     def test_counts_fall_without_injury_as_exclusion_only_inside_the_study_population(self):
         other = aih(DIAG_PRINC="J189", DIAG_SECUN="W19")
-        cells, excluded = aggregate([aih(), other, aih(**{"IDADE": "40", "DIAG_PRINC": "J189"}),
+        cells, excluded, _ = aggregate([aih(), other, aih(**{"IDADE": "40", "DIAG_PRINC": "J189"}),
                                      aih(MUNIC_RES="999999", DIAG_PRINC="J189")])
         self.assertEqual(sum(c["admissions"] for c in cells.values()), 1)
         self.assertEqual(excluded[2024]["queda_sem_lesao_principal"], 1)
@@ -40,12 +40,12 @@ class TransformTests(unittest.TestCase):
     def test_age_bands_and_age_codes(self):
         self.assertEqual([age_band(a) for a in (59, 60, 69, 70, 79, 80, 105)],
                          [None, "60–69", "60–69", "70–79", "70–79", "80+", "80+"])
-        cells, _ = aggregate([aih(COD_IDADE="3", IDADE="8"), aih(COD_IDADE="5", IDADE="3")])
+        cells, _, _ = aggregate([aih(COD_IDADE="3", IDADE="8"), aih(COD_IDADE="5", IDADE="3")])
         self.assertEqual(list(cells), [(2024, "DF", "80+", "F")])
 
     def test_counts_only_ident_1_and_tracks_exclusions(self):
         records = [aih(), aih(IDENT="5"), aih(IDADE=""), aih(MUNIC_RES="999999"), aih(SEXO="0", MORTE="1")]
-        cells, excluded = aggregate(records)
+        cells, excluded, _ = aggregate(records)
         self.assertEqual(cells[(2024, "DF", "70–79", "F")]["admissions"], 1)
         self.assertEqual(cells[(2024, "DF", "70–79", "I")]["deaths"], 1)
         self.assertEqual(excluded[2024]["idade_ignorada"], 1)
@@ -60,6 +60,49 @@ class TransformTests(unittest.TestCase):
 
 TABNET_SAMPLE = '<PRE>\n"Unidade da Federa&ccedil;&atilde;o";"60 a 69 anos";"70 a 79 anos";"80 anos e mais";"Total"\n' + "".join(
     f'"{code} X";{i + 1}0;{i + 1}1;{i + 1}2;{(i + 1) * 3}\n' for i, code in enumerate(UF_BY_CODE)) + '"Total";1;1;1;3\n&\n</PRE>'
+
+
+class ProfileTests(unittest.TestCase):
+    def test_profile_of_maps_each_dimension(self):
+        got = profile_of(aih(DT_INTER="20240217", CAR_INT="02", COBRANCA="15", RACA_COR="03", NAT_JUR="1023",
+                             UTI_MES_TO="2", PROC_REA="0408050632", DIAG_SECUN="W01"))
+        self.assertEqual(got, {"injury": "S72", "fall": "W01", "month": "02", "weekday": "5", "urgency": "urgencia",
+                               "procedure": "cirurgico", "uti": "com_uti", "exit": "alta", "nature": "publico",
+                               "race": "parda"})
+
+    def test_profile_of_handles_missing_and_unknown_values(self):
+        got = profile_of(aih(DIAG_PRINC="S999", DIAG_SECUN="", DIAGSEC2="W10", DT_INTER="", COBRANCA="", RACA_COR="99",
+                             NAT_JUR="5002", PROC_REA="", CAR_INT="05"))
+        self.assertEqual((got["injury"], got["fall"], got["month"], got["weekday"]), ("S_outras", "W10", "ign", "ign"))
+        self.assertEqual((got["exit"], got["race"], got["nature"], got["procedure"], got["urgency"], got["uti"]),
+                         ("outros", "sem_info", "outros", "outros", "outros", "sem_uti"))
+
+    def test_every_dimension_sums_to_the_main_cell_and_to_the_municipality(self):
+        records = [aih(), aih(MORTE="1", DIAG_PRINC="S065", DT_INTER="20240301"), aih(SEXO="0", MUNIC_RES="350010")]
+        cells, _, extras = aggregate(records)
+        for dim in ("injury", "fall", "month", "exit"):
+            total = sum(c["admissions"] for k, c in extras["profile"].items() if k[4] == dim)
+            self.assertEqual(total, 3)
+        self.assertEqual(sum(c["deaths"] for k, c in extras["profile"].items() if k[4] == "injury"), 1)
+        self.assertEqual({k[2]: c["admissions"] for k, c in extras["munic"].items()}, {"530010": 2, "350010": 1})
+
+    def test_load_profile_rejects_a_dimension_that_does_not_close_with_the_base(self):
+        from analytics.data import Row
+        from analytics.profile import load_profile, PROFILE_FIELDS
+        rows = (Row(2024, "DF", "70–79", "F", 2, 100, 0, 10, 2, 100),)
+        header = ",".join(PROFILE_FIELDS)
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "profile.csv"
+            lines = [f"2024,DF,70–79,F,{dim},{value},{n},0,0,0,0" for dim, value, n in
+                     [(dim, value, 2) for dim, value in (("injury", "S72"), ("fall", "W19"), ("month", "02"),
+                      ("weekday", "0"), ("urgency", "urgencia"), ("procedure", "clinico"), ("uti", "sem_uti"),
+                      ("exit", "alta"), ("nature", "publico"), ("race", "parda"))]]
+            path.write_text(header + "\n" + "\n".join(lines) + "\n", encoding="utf-8")
+            self.assertEqual(len(load_profile(path, rows)), 10)
+            path.write_text(header + "\n" + "\n".join(lines[:-1] + [lines[-1].replace(",2,0,0", ",1,0,0", 1)]) + "\n",
+                            encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_profile(path, rows)
 
 
 class CacheRuleTests(unittest.TestCase):
@@ -112,6 +155,12 @@ class PopulationTests(unittest.TestCase):
 
 
 class PilotAndBuildTests(unittest.TestCase):
+    def setUp(self):
+        from unittest import mock
+        patcher = mock.patch.object(build, "municipality_names", return_value={"530010": "Brasília"})  # sem rede
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def tabnet(self, directory, value):
         path = Path(directory) / "tabnet.csv"
         path.write_text("escopo,internacoes,obitos,dias_permanencia,valor_aprovado\n"
@@ -162,6 +211,14 @@ class PilotAndBuildTests(unittest.TestCase):
             self.assertEqual(sum(r.admissions for r in rows), 2)
             self.assertEqual(list(csv.reader(path.open()))[0], list(FIELDS))
             self.assertEqual(json.loads((path.parent / "manifest.json").read_text())["years"], [2024])
+            from analytics.profile import load_municipalities, load_profile, municipalities_payload, profile_payload
+            profile = load_profile(path.with_name("profile.csv"), rows)
+            municipalities = load_municipalities(path.with_name("municipios.csv"), rows)
+            filters = {"start": 2024, "end": 2024, "uf": "", "age": "", "sex": ""}
+            injury = next(d for d in profile_payload(profile, filters)["dims"] if d["key"] == "injury")
+            self.assertEqual([(i["key"], i["admissions"]) for i in injury["items"]], [("S72", 2)])
+            top = municipalities_payload(municipalities, filters)["top"]
+            self.assertEqual((top[0]["name"], top[0]["admissions"]), ("Brasília", 2))
 
 
 if __name__ == "__main__":

@@ -3,10 +3,12 @@
 Opera sobre dicionários simples (um por AIH já pré-filtrada ou não) para poder
 ser testado só com a biblioteca padrão. A leitura dos arquivos fica em sources.py.
 """
+import datetime as dt
 import re
 from collections import Counter, defaultdict
 
 from analytics.data import AGES
+from analytics.profile import INJURY as INJURY_CODES
 
 # Código IBGE da UF (2 primeiros dígitos de MUNIC_RES) -> sigla.
 UF_BY_CODE = {
@@ -19,8 +21,10 @@ FALL = re.compile(r"^W(0\d|1\d)")  # CID-10 W00–W19
 INJURY = re.compile(r"^[ST]\d")  # CID-10 capítulo XIX (S00–T98): lesões
 DIAG_FIELDS = ("DIAG_PRINC", "DIAG_SECUN") + tuple(f"DIAGSEC{i}" for i in range(1, 10))
 REQUIRED_FIELDS = ("ANO_CMPT", "IDENT", "IDADE", "SEXO", "MUNIC_RES", "MORTE", "DIAS_PERM", "VAL_TOT")
+# Campos do perfil clínico e hospitalar (dimensões extras).
+PROFILE_FIELDS = ("DT_INTER", "CAR_INT", "COBRANCA", "RACA_COR", "NAT_JUR", "UTI_MES_TO", "PROC_REA")
 # Versão da definição de caso. Muda quando a regra muda; agregados em cache de outra versão são refeitos.
-CASE_RULE = "tabnet-v1"
+CASE_RULE = "tabnet-v2"  # v2: agregados passam a trazer perfil clínico/hospitalar e município
 
 
 def _code(record, field):
@@ -41,6 +45,36 @@ def is_fall(record):
     """
     return bool(INJURY.match(_code(record, "DIAG_PRINC"))) and any(
         FALL.match(_code(record, f)) for f in DIAG_FIELDS[1:])
+
+
+def _int(value, default=-1):
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def profile_of(record):
+    """Categoria de cada dimensão do perfil (vocabulário em analytics/profile.py)."""
+    principal = _code(record, "DIAG_PRINC")[:3]
+    injury = principal if principal in INJURY_CODES else f"{principal[:1]}_outras"
+    fall = next((_code(record, f)[:3] for f in DIAG_FIELDS[1:] if FALL.match(_code(record, f))), "W19")
+    date = str(record.get("DT_INTER") or "").strip()
+    try:
+        day = dt.date(int(date[:4]), int(date[4:6]), int(date[6:8]))
+        month, weekday = f"{day.month:02d}", str(day.weekday())
+    except (ValueError, IndexError):
+        month = weekday = "ign"
+    urgency = {"01": "eletivo", "02": "urgencia"}.get(str(record.get("CAR_INT") or "").strip(), "outros")
+    exit_code = _int(record.get("COBRANCA"))
+    exit_ = ("alta" if 11 <= exit_code <= 19 else "permanencia" if 21 <= exit_code <= 28 else
+             "transferencia" if exit_code in (29, 31, 32) else "obito" if 41 <= exit_code <= 43 else "outros")
+    nature = {"1": "publico", "2": "privado", "3": "sem_fins"}.get(str(record.get("NAT_JUR") or "").strip()[:1], "outros")
+    race = {1: "branca", 2: "preta", 3: "parda", 4: "amarela", 5: "indigena"}.get(_int(record.get("RACA_COR")), "sem_info")
+    procedure = {"03": "clinico", "04": "cirurgico"}.get(str(record.get("PROC_REA") or "").strip()[:2], "outros")
+    return {"injury": injury, "fall": fall, "month": month, "weekday": weekday, "urgency": urgency,
+            "procedure": procedure, "uti": "com_uti" if _int(record.get("UTI_MES_TO"), 0) > 0 else "sem_uti",
+            "exit": exit_, "nature": nature, "race": race}
 
 
 def age_in_years(record):
@@ -75,10 +109,23 @@ def number(value, default=0.0):
         return default
 
 
+def _add(counter, record):
+    counter["admissions"] += 1
+    counter["deaths"] += str(record.get("MORTE") or "").strip() in ("1", "1.0")
+    counter["stay_days"] += int(number(record.get("DIAS_PERM")))
+    counter["stay_count"] += 1
+    counter["approved_cents"] += round(number(record.get("VAL_TOT")) * 100)
+
+
 def aggregate(records):
-    """Agrega AIHs em {(ano, uf, faixa, sexo): componentes} e conta exclusões por ano."""
+    """Agrega AIHs em ({(ano, uf, faixa, sexo): componentes}, exclusões por ano, extras).
+
+    `extras` = {"profile": {(ano, uf, faixa, sexo, dimensão, valor): componentes},
+    "munic": {(ano, uf, código IBGE de 6 dígitos): componentes}}.
+    """
     cells = defaultdict(lambda: Counter())
     excluded = defaultdict(Counter)
+    extras = {"profile": defaultdict(Counter), "munic": defaultdict(Counter)}
     for record in records:
         if str(record.get("IDENT") or "").strip() not in ("1", "1.0"):
             continue  # só AIH normal; continuação de longa permanência não é nova internação
@@ -103,13 +150,12 @@ def aggregate(records):
         if not is_fall(record):
             excluded[year]["queda_sem_lesao_principal"] += 1  # queda registrada, internação por outro motivo
             continue
-        cell = cells[(year, uf, band, sex_of(record))]
-        cell["admissions"] += 1
-        cell["deaths"] += str(record.get("MORTE") or "").strip() in ("1", "1.0")
-        cell["stay_days"] += int(number(record.get("DIAS_PERM")))
-        cell["stay_count"] += 1
-        cell["approved_cents"] += round(number(record.get("VAL_TOT")) * 100)
-    return cells, excluded
+        sex = sex_of(record)
+        _add(cells[(year, uf, band, sex)], record)
+        for dim, value in profile_of(record).items():
+            _add(extras["profile"][(year, uf, band, sex, dim, value)], record)
+        _add(extras["munic"][(year, uf, str(record.get("MUNIC_RES")).strip()[:6])], record)
+    return cells, excluded, extras
 
 
 def merge_cells(parts):

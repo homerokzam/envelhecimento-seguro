@@ -9,7 +9,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from .transform import (CASE_RULE, DIAG_FIELDS, INJURY, REQUIRED_FIELDS, UF_BY_CODE, aggregate,
+from .transform import (CASE_RULE, DIAG_FIELDS, INJURY, PROFILE_FIELDS, REQUIRED_FIELDS, UF_BY_CODE, aggregate,
                         has_fall_code)
 
 log = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ FETCH_ATTEMPTS = 3
 FETCH_BACKOFF = 5  # segundos, multiplicado pela tentativa
 REFRESH_MONTHS = 6  # meses mais recentes são rebaixados na atualização (o SIH reprocessa)
 UFS = sorted(UF_BY_CODE.values())
-FILE_FIELDS = REQUIRED_FIELDS + ("COD_IDADE",) + DIAG_FIELDS
+FILE_FIELDS = REQUIRED_FIELDS + PROFILE_FIELDS + ("COD_IDADE",) + DIAG_FIELDS
 
 
 def expected_files(years):
@@ -149,23 +149,31 @@ def load_month(uf, year, month, cache_dir, refresh=False, fetch=read_month):
     if path.exists() and not refresh:
         saved = json.loads(path.read_text(encoding="utf-8"))
         if saved.get("rule") == CASE_RULE:
-            return decode(saved), saved["excluded"], False
+            return decode(saved), saved["excluded"], decode_extras(saved), False
         # Agregado de outra definição de caso (ou de versão antiga que gravava arquivo vazio como zero).
         log.warning("RD%s%02d%02d: agregado de regra antiga (%s), reprocessando", uf, year % 100, month,
                     saved.get("rule"))
     records = fetch(uf, year, month, cache_dir)
-    cells, excluded = aggregate(records)
+    cells, excluded, extras = aggregate(records)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(encode(cells, excluded, getattr(records, "total_rows", None)),
+    tmp.write_text(json.dumps(encode(cells, excluded, getattr(records, "total_rows", None), extras),
                                 ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)
-    return cells, {str(k): dict(v) for k, v in excluded.items()}, True
+    return cells, {str(k): dict(v) for k, v in excluded.items()}, extras, True
 
 
-def encode(cells, excluded, rows=None):
+def encode(cells, excluded, rows=None, extras=None):
+    extras = extras or {"profile": {}, "munic": {}}
     return {"rule": CASE_RULE, "rows": rows, "cells": [[*key, dict(value)] for key, value in cells.items()],
+            "profile": [[*key, dict(value)] for key, value in extras["profile"].items()],
+            "munic": [[*key, dict(value)] for key, value in extras["munic"].items()],
             "excluded": {str(k): dict(v) for k, v in excluded.items()}}
+
+
+def decode_extras(saved):
+    return {"profile": {tuple(item[:-1]): Counter(item[-1]) for item in saved["profile"]},
+            "munic": {tuple(item[:-1]): Counter(item[-1]) for item in saved["munic"]}}
 
 
 def decode(saved):

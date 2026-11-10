@@ -34,7 +34,7 @@ export function ChartPlot({ title, unit, fileName, data, layout, meta, filters, 
           layout={{
             autosize: true, height, margin: { t: 20, l: 60, r: 20, b: 90 },
             font: { family: 'inherit', color: '#143536' }, paper_bgcolor: '#fff', plot_bgcolor: '#fff',
-            annotations: [{ text: footerText(meta, filters, unit), xref: 'paper', yref: 'paper', x: 0, y: -0.32,
+            annotations: [{ text: footerText(meta, filters, unit), xref: 'paper', yref: 'paper', x: 0, y: -74 / (height - 110),
               xanchor: 'left', yanchor: 'top', showarrow: false, align: 'left', font: { size: 10, color: '#4c6668' } },
             ...(layout?.annotations ?? [])],
             ...layout,

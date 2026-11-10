@@ -7,10 +7,12 @@ import { DatasetPanel } from './components/DatasetPanel'
 import { Filters } from './components/Filters'
 import { Kpis } from './components/Kpis'
 import { Notes } from './components/Notes'
+import { AboutData } from './components/AboutData'
 import { useUi, type TabKey } from './store/ui'
 import { Evolucao } from './tabs/Evolucao'
 import { Impacto } from './tabs/Impacto'
 import { Panorama } from './tabs/Panorama'
+import { Perfil } from './tabs/Perfil'
 
 export function App() {
   const { start, end, uf, age, sex, tab, setTab, normalizeYears } = useUi()
@@ -25,6 +27,7 @@ export function App() {
   const tabs: { key: TabKey; label: string; children: React.ReactNode }[] = data ? [
     { key: 'panorama', label: 'Panorama territorial', children: <Panorama data={data} /> },
     { key: 'evolucao', label: 'Evolução e perfis', children: <Evolucao data={data} /> },
+    { key: 'perfil', label: 'Perfil clínico e hospitalar', children: <Perfil data={data} /> },
     { key: 'impacto', label: 'Impacto hospitalar', children: <Impacto data={data} /> },
   ] : []
 
@@ -41,6 +44,7 @@ export function App() {
           action={<Button onClick={() => query.refetch()}>Tentar novamente</Button>} />}
         {!result && !query.isError && <Spin description="Consultando indicadores…"><div style={{ padding: 48 }} /></Spin>}
         {result?.empty && <Alert type="info" showIcon title="Os indicadores aparecem depois que a base for baixada." />}
+        {data && <AboutData metadata={data.metadata} />}
         {(data || (result?.empty)) && <Filters options={data?.options} />}
         {data && <>
           <Tabs activeKey={tab} onChange={k => setTab(k as TabKey)} items={tabs}

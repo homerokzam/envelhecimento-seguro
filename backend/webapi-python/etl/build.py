@@ -1,15 +1,18 @@
 """Orquestra download, agregação, conciliação e publicação de uma nova versão da base."""
 import csv
 import datetime as dt
+import gzip
 import hashlib
 import json
 import logging
 import os
+import urllib.request
 from collections import Counter
 from pathlib import Path
 
 from analytics import store
-from analytics.data import FIELDS, load
+from analytics.data import FIELDS, SOURCE, load
+from analytics.profile import MUNICIPALITY_FIELDS, PROFILE_FIELDS, load_municipalities, load_profile
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +20,7 @@ from . import pilot, population, sources
 from .transform import merge_cells, to_rows
 
 FIRST_YEAR = 2015
+IBGE_MUNICIPALITIES = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios"
 CID = ("Diagnóstico principal com lesão (CID-10 S00–T98) e causa externa W00–W19 em campo secundário "
        "(DIAG_SECUN, DIAGSEC1–9), como na tabela de causas externas do TABNET; AIH tipo 1")
 
@@ -37,6 +41,46 @@ def pysus_version():
         return "desconhecida"
 
 
+def municipality_names(cache):
+    """Nomes dos municípios (IBGE, código de 6 dígitos). Sem rede, os nomes ficam vazios e o painel mostra o código."""
+    path = Path(cache) / "ibge_municipios.json"
+    try:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+        with urllib.request.urlopen(IBGE_MUNICIPALITIES, timeout=60) as response:
+            body = response.read()
+        if body[:2] == b"\x1f\x8b":  # a API do IBGE responde compactada mesmo sem pedir
+            body = gzip.decompress(body)
+        names = {str(m["id"])[:6]: m["nome"] for m in json.loads(body)}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(names, ensure_ascii=False), encoding="utf-8")
+        return names
+    except Exception as error:  # noqa: BLE001
+        log.warning("Nomes de municípios indisponíveis (%s); o painel mostrará só o código IBGE.", error)
+        return {}
+
+
+def write_profile(folder, profile_cells, munic_cells, complete, main_rows, cache):
+    """Grava profile.csv e municipios.csv só para estratos e anos da base principal, já validados."""
+    present = {(r.year, r.uf, r.age, r.sex) for r in main_rows}
+    components = ("admissions", "deaths", "stay_days", "stay_count", "approved_cents")
+    with (folder / "profile.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(PROFILE_FIELDS)
+        for key, c in sorted(profile_cells.items()):
+            if key[:4] in present:
+                writer.writerow([*key, *(c[name] for name in components)])
+    names = municipality_names(cache)
+    with (folder / "municipios.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(MUNICIPALITY_FIELDS)
+        for (year, uf, code), c in sorted(munic_cells.items()):
+            if year in complete:
+                writer.writerow([year, uf, code, names.get(code, ""), *(c[name] for name in components)])
+    load_profile(folder / "profile.csv", main_rows)  # confere que fecha com a base antes de publicar
+    load_municipalities(folder / "municipios.csv", main_rows)
+
+
 def run(progress=None, refresh=False, directory=None, population_csv=None, fetch=sources.read_month, years=None):
     """Constrói e ativa uma nova versão. `progress(done, total, stage)` informa o andamento."""
     directory = Path(directory or store.data_dir())
@@ -52,6 +96,7 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
     latest = max(years)
     cutoff = latest * 12 + 12 - sources.REFRESH_MONTHS  # meses recentes são rebaixados na atualização
     parts, excluded, downloaded, failed_years = [], {}, 0, {}
+    profile_parts, munic_parts = [], []
     cached_files, pilot_files = 0, {}
     log.info("Iniciando carga: anos %s-%s, %d arquivos, refresh=%s, cache=%s",
              min(years), latest, total, refresh, cache)
@@ -61,7 +106,7 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
         notify(done, total, f"Arquivo RD{uf}{year % 100:02d}{month:02d}")
         recent = refresh and year * 12 + month > cutoff
         try:
-            cells, exc, fresh = sources.load_month(uf, year, month, cache, refresh=recent, fetch=fetch)
+            cells, exc, extras, fresh = sources.load_month(uf, year, month, cache, refresh=recent, fetch=fetch)
         except Exception as error:  # noqa: BLE001
             if year < latest:
                 raise
@@ -73,12 +118,15 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
         if year == pilot.PILOT_YEAR:
             pilot_files[(uf, month)] = (sum(c["admissions"] for c in cells.values()), "baixado" if fresh else "cache")
         parts.append(cells)
+        profile_parts.append(extras["profile"])
+        munic_parts.append(extras["munic"])
         if done % 100 == 0:
             log.info("Progresso: %d/%d arquivos (baixados=%d, cache=%d)", done, total, downloaded, cached_files)
         for y, counters in exc.items():
             excluded.setdefault(int(y), Counter()).update(counters)
     complete = [y for y in years if y not in failed_years]
     cells = merge_cells(parts)
+    profile_cells, munic_cells = merge_cells(profile_parts), merge_cells(munic_parts)
 
     log.info("Arquivos: baixados=%d, do cache=%d, ignorados=%d", downloaded, cached_files, total - len(parts))
     by_year = Counter()
@@ -117,7 +165,8 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
         writer = csv.writer(handle)
         writer.writerow(FIELDS)
         writer.writerows(rows)
-    load(folder / "dataset.csv")  # valida antes de publicar
+    main_rows = load(folder / "dataset.csv")  # valida antes de publicar
+    write_profile(folder, profile_cells, munic_cells, complete, main_rows, cache)
     ignored_sex = {}
     for (y, _u, _a, sex), c in cells.items():
         if sex == "I" and y in complete:
@@ -125,7 +174,7 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
     manifest = {
         "version": version,
         "createdAt": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-        "source": "SIH/SUS (RD) via PySUS",
+        "source": SOURCE,
         "pysusVersion": pysus_version(),
         "populationEdition": population.EDITION,
         "caseDefinition": CID,
