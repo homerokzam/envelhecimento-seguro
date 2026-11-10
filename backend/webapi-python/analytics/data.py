@@ -148,7 +148,8 @@ def dashboard(rows, filters, metadata, weights):
     return {
         "metadata": metadata,
         "filters": f,
-        "options": {"years": years_of(rows), "states": STATES, "ages": AGES, "sexes": SEXES},
+        "options": {"years": years_of(rows), "states": {uf: name for uf, name in STATES.items() if uf in {r.uf for r in rows}},  # só UFs com dados (amostra local)
+                     "ages": AGES, "sexes": SEXES},
         "notes": {"ignoredSexAdmissions": 0 if f["sex"] else
                   sum(r.admissions for r in selected if r.sex == IGNORED_SEX)},
         "summary": summarize(selected, len(ufs) * len(years) * len(ages) * len(sexes)),

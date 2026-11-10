@@ -34,7 +34,7 @@ body { margin: 0; background: #f3f6f5; color: #143536; }
   .ant-table-wrapper { overflow-x: auto; }
 }
 .stack { grid-template-columns: minmax(0, 1fr); }
-.stack > *, main.shell > * { min-width: 0; max-width: 100%; }
+.stack > *, main.shell > * { min-width: 0; }  /* sem max-width: o Row do antd usa margem negativa */
 .js-plotly-plot, .plot-container { max-width: 100%; }
 html, body { overflow-x: hidden; }
 @media (max-width: 767px) {
@@ -42,3 +42,27 @@ html, body { overflow-x: hidden; }
   .map-toolbar .ant-select { min-width: 0 !important; }
 }
 .env-badge { margin-left: 12px; padding: 2px 8px; border-radius: 4px; background: #f5a623; color: #2b1d00; letter-spacing: 0.08em; }
+/* grades de cards: alinham com tabela e alertas (o Row do antd deixava 8px de recuo) */
+.cols, .cols-4 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.cols-4 { margin: 16px 0; }
+@media (min-width: 576px) { .cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 992px) { .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+.chart-extra { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* relatório por aba: "Relatório (PDF)" abre a impressão com este layout */
+.print-only { display: none; }
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body { background: #fff; }
+  .no-print, .hero, .filters, .ant-tabs-nav, .env-badge { display: none !important; }
+  .print-only { display: block; margin-bottom: 12px; }
+  .report-head h2 { margin: 0 0 4px; font-size: 18px; }
+  .report-head p { margin: 0; font-size: 11px; color: #4c6668; }
+  .shell { width: 100%; margin: 0; }
+  .ant-card { break-inside: avoid; box-shadow: none !important; border: 1px solid #d8dedd; }
+  .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .ant-table-wrapper { break-inside: auto; }
+  tr { break-inside: avoid; }
+}

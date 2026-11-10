@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
-import { Alert, Button, Spin, Tabs } from 'antd'
+import { Alert, Button, Space, Spin, Tabs } from 'antd'
 import { errorMessage } from './api/client'
 import { exportUrl, useDashboard, useDatasetStatus, useIsLocal } from './api/hooks'
+import { fmtDate } from './format'
 import type { Dashboard } from './api/types'
 import { DatasetPanel } from './components/DatasetPanel'
 import { Filters } from './components/Filters'
@@ -44,7 +45,7 @@ export function App() {
         <p>Internações por quedas em pessoas de 60 anos ou mais</p>
       </div></header>
       <main className="shell">
-        <DatasetPanel />
+        <div className="no-print"><DatasetPanel /></div>
         {query.isError && <Alert type="error" showIcon title="Consulta indisponível" description={errorMessage(query.error)}
           action={<Button onClick={() => query.refetch()}>Tentar novamente</Button>} />}
         {!result && !query.isError && <Spin description="Consultando indicadores…"><div style={{ padding: 48 }} /></Spin>}
@@ -52,11 +53,18 @@ export function App() {
         {data?.metadata.sample && <Alert type="warning" showIcon style={{ marginBottom: 8 }}
           title={`Amostra local: ${data.metadata.sample.years.join(', ')} · ${data.metadata.sample.ufs.join(', ')}`}
           description="Só estas UFs foram baixadas. Totais e taxas do Brasil ficam parciais; as demais UFs aparecem sem dados." />}
-        {data && <AboutData metadata={data.metadata} />}
+        {data && <div className="no-print"><AboutData metadata={data.metadata} /></div>}
         {(data || (result?.empty)) && <Filters options={data?.options} />}
         {data && <>
+          <section className="print-only report-head" aria-hidden="true">
+            <h2>Envelhecimento Seguro · {tabs.find(t => t.key === tab)?.label}</h2>
+            <p>{data.filters.start}–{data.filters.end} · {data.filters.uf || 'Brasil'} · {data.filters.age || '60 anos ou mais'} · {data.filters.sex || 'Ambos os sexos'}</p>
+            <p>{data.metadata.source} · versão {data.metadata.version} · extraída em {fmtDate(data.metadata.createdAt)} · relatório gerado em {new Date().toLocaleDateString('pt-BR')}</p>
+          </section>
           <Tabs activeKey={tab} onChange={k => setTab(k as TabKey)} items={tabs}
-            tabBarExtraContent={<Button href={exportUrl(filters)}>Baixar CSV ↓</Button>} />
+            tabBarExtraContent={<Space className="no-print" wrap>
+              <Button onClick={() => window.print()} title="Abre a impressão: escolha “Salvar como PDF”">Relatório (PDF)</Button>
+              <Button href={exportUrl(filters)}>Baixar CSV ↓</Button></Space>} />
           {!data.summary && <Alert type="info" showIcon style={{ marginBottom: 8 }} title="Sem dados para os filtros selecionados." />}
           {data.summary?.partial && <Alert type="warning" showIcon style={{ marginBottom: 8 }} title="Cobertura parcial. Taxas populacionais não exibidas." />}
           <Kpis m={data.summary} />

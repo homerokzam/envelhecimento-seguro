@@ -33,6 +33,7 @@ export interface Metadata {
   exclusions: Record<string, Record<string, number>>
   ignoredSexAdmissions: Record<string, number>
   pilotOk: boolean
+  partialLoad?: boolean
   sample?: { ufs: string[]; years: number[] } | null
 }
 
@@ -102,6 +103,10 @@ export interface JobInfo {
   stage: string
   error: string | null
   startedAt: number | null
+  year?: number | null
+  running?: string[]    // UFs sendo lidas agora
+  finished?: string[]   // UFs do ano já concluídas
+  yearsDone?: number[]  // anos já publicados nesta carga
 }
 
 export interface DatasetStatus {

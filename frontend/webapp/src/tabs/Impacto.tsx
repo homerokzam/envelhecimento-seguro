@@ -1,4 +1,4 @@
-import { Alert, Col, Row } from 'antd'
+import { Alert } from 'antd'
 import type { Data } from 'plotly.js'
 import type { Dashboard } from '../api/types'
 import { ChartPlot } from '../components/ChartPlot'
@@ -14,14 +14,14 @@ export function Impacto({ data }: { data: Dashboard }) {
   const layout = { ...pandemic(years), xaxis: { dtick: 1 } }
   return (
     <div className="stack" style={{ display: 'grid', gap: 16 }}>
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={12}><ChartPlot {...base} title="Permanência média" unit="Dias por ano de processamento"
-          fileName="permanencia" data={line('meanStay')} layout={layout} /></Col>
-        <Col xs={24} lg={12}><ChartPlot {...base} title="Mortalidade hospitalar" unit="% das internações"
-          fileName="mortalidade" data={line('mortality')} layout={layout} /></Col>
-      </Row>
+      <div className="cols">
+        <div><ChartPlot {...base} title="Permanência média" unit="Dias por ano de processamento"
+          fileName="permanencia" data={line('meanStay')} layout={layout} /></div>
+        <div><ChartPlot {...base} title="Mortalidade hospitalar" unit="% das internações"
+          fileName="mortalidade" data={line('mortality')} layout={layout} /></div>
+      </div>
       <Alert type="info" showIcon title="Valores aprovados em reais nominais. Não representam o custo econômico total da internação. Mortalidade hospitalar não equivale a mortalidade populacional." />
-      <DataTable items={data.territories} hospital />
+      <DataTable items={data.territories} hospital meta={data.metadata} filters={data.filters} />
     </div>
   )
 }

@@ -5,6 +5,7 @@ precisa ser mantido; o cache de agregados é o que torna a atualização increme
 """
 import json
 import logging
+import threading
 import time
 from collections import Counter
 from pathlib import Path
@@ -84,17 +85,28 @@ def read_month_ftp(uf, year, month, cache_dir):
         dbf.unlink(missing_ok=True)
 
 
+# O catálogo do PySUS (DuckDB) não aguenta chamadas simultâneas ("cannot start a transaction within a
+# transaction"). Só uma thread por vez usa o PySUS; as outras leem direto do FTP, que é seguro em paralelo.
+_PYSUS = threading.Lock()
+
+
 def read_month(uf, year, month, cache_dir):
-    """Devolve os registros relevantes de um arquivo RD: PySUS primeiro, FTP direto como alternativa."""
+    """Devolve os registros relevantes de um arquivo RD: PySUS primeiro (uma thread por vez), FTP direto como alternativa."""
     name = f"RD{uf}{year % 100:02d}{month:02d}"
-    try:
-        records = _read_month_pysus(uf, year, month, cache_dir)
-        if records is not None:
-            return records
-        problem = "PySUS devolveu DataFrame vazio"
-    except Exception as error:  # noqa: BLE001
-        problem = f"PySUS falhou: {type(error).__name__}: {error}"
-    log.warning("%s: %s; tentando o FTP do DATASUS diretamente", name, problem)
+    if _PYSUS.acquire(blocking=False):
+        try:
+            records = _read_month_pysus(uf, year, month, cache_dir)
+            if records is not None:
+                return records
+            problem = "PySUS devolveu DataFrame vazio"
+        except Exception as error:  # noqa: BLE001
+            problem = f"PySUS falhou: {type(error).__name__}: {error}"
+        finally:
+            _PYSUS.release()
+        log.warning("%s: %s; tentando o FTP do DATASUS diretamente", name, problem)
+    else:
+        problem = "PySUS ocupado por outra UF"
+        log.info("%s: %s; lendo direto do FTP do DATASUS", name, problem)
     for attempt in range(1, FETCH_ATTEMPTS + 1):
         try:
             records = read_month_ftp(uf, year, month, cache_dir)

@@ -258,6 +258,84 @@ class PilotAndBuildTests(unittest.TestCase):
             path, _ = store.active(root / "data")
             self.assertEqual({r.uf for r in load(path)}, {"DF", "GO"})
 
+    def _inputs(self, root, years=(2023, 2024)):
+        from analytics.data import STATES
+        pop = root / "pop.csv"
+        with pop.open("w", encoding="utf-8", newline="") as h:
+            w = csv.writer(h)
+            w.writerow(["year", "uf", "sex", "age", "population"])
+            for year in years:
+                for uf in STATES:
+                    for sex in "FM":
+                        for age in (60, 70, 80):
+                            w.writerow([year, uf, sex, age, 1000])
+        ref = root / "ref.csv"
+        ref.write_text("escopo,internacoes,obitos,dias_permanencia,valor_aprovado\n"
+                       "BR,2,0,10,2001\nDF,2,0,10,2001\nSP,0,0,0,0\n", encoding="utf-8")
+        return pop, ref
+
+    def test_years_load_in_order_publishing_each_year(self):
+        calls, published, seen = [], [], []
+
+        def fetch(uf, year, month, cache):
+            calls.append((year, uf, month))
+            return [aih(MUNIC_RES="530010")] * 2 if (uf, year, month) == ("DF", 2024, 1) else []
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            pop, ref = self._inputs(root)
+            old = pilot.compare.__defaults__
+            try:
+                pilot.compare.__defaults__ = (ref,)
+
+                def on_publish():
+                    manifest = store.active(root / "data")[1]
+                    published.append((manifest["years"], manifest["partialLoad"]))
+
+                manifest = build.run(directory=root / "data", population_csv=pop, fetch=fetch, years=[2023, 2024],
+                                     ufs=["DF", "GO"], workers=2, on_publish=on_publish,
+                                     progress=lambda done, total, stage, **detail: seen.append(detail.get("year")))
+            finally:
+                pilot.compare.__defaults__ = old
+            self.assertEqual(published, [([2023], True), ([2023, 2024], False)])
+            self.assertEqual(manifest["years"], [2023, 2024])
+            years_called = [c[0] for c in calls]
+            self.assertEqual(years_called, sorted(years_called))  # 2023 inteiro antes de 2024
+            self.assertEqual(len(calls), 2 * 12 * 2)
+            self.assertIn(2023, seen)
+            self.assertEqual(sorted(a for a in seen if a), [a for a in seen if a])  # andamento só avança
+
+    def test_failure_in_current_year_keeps_previous_years_published(self):
+        def fetch(uf, year, month, cache):
+            if year == 2024 and uf == "GO":
+                raise RuntimeError("arquivo indisponível")
+            return []
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            pop, ref = self._inputs(root)
+            old = pilot.compare.__defaults__
+            try:
+                pilot.compare.__defaults__ = (ref,)
+                with self.assertRaises(build.PilotBlocked):  # 2024 (piloto) não concluiu: não publica a carga final
+                    build.run(directory=root / "data", population_csv=pop, fetch=fetch, years=[2023, 2024],
+                              ufs=["DF", "GO"], workers=2)
+            finally:
+                pilot.compare.__defaults__ = old
+            self.assertEqual(store.active(root / "data")[1]["years"], [2023])  # 2023 já estava no ar
+
+    def test_failure_in_a_past_year_aborts_without_publishing(self):
+        def fetch(uf, year, month, cache):
+            raise RuntimeError("arquivo indisponível")
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            pop, _ref = self._inputs(root)
+            with self.assertRaises(RuntimeError):
+                build.run(directory=root / "data", population_csv=pop, fetch=fetch, years=[2023, 2024],
+                          ufs=["DF", "GO"], workers=2)
+            self.assertIsNone(store.active(root / "data"))
+
 
 if __name__ == "__main__":
     unittest.main()

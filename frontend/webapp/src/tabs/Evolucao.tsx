@@ -1,4 +1,3 @@
-import { Col, Row } from 'antd'
 import type { Data, Layout } from 'plotly.js'
 import type { Dashboard, Item } from '../api/types'
 import { ChartPlot } from '../components/ChartPlot'
@@ -28,12 +27,12 @@ export function Evolucao({ data }: { data: Dashboard }) {
         data={[{ type: 'bar', x: years, y: value(data.series, 'admissions'), marker: { color: GREEN },
           hovertemplate: '%{x}: %{y:,}<extra></extra>' }]}
         layout={{ ...pandemic(years), xaxis: { dtick: 1 } }} />
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={12}><ChartPlot {...base} title="Faixa etária" unit="Internações por 100 mil habitantes"
-          fileName="faixa-etaria" data={bars(data.ages, 'rate')} /></Col>
-        <Col xs={24} lg={12}><ChartPlot {...base} title="Sexo" unit="Internações por 100 mil habitantes"
-          fileName="sexo" data={bars(data.sexes, 'rate')} /></Col>
-      </Row>
+      <div className="cols">
+        <div><ChartPlot {...base} title="Faixa etária" unit="Internações por 100 mil habitantes"
+          fileName="faixa-etaria" data={bars(data.ages, 'rate')} /></div>
+        <div><ChartPlot {...base} title="Sexo" unit="Internações por 100 mil habitantes"
+          fileName="sexo" data={bars(data.sexes, 'rate')} /></div>
+      </div>
     </div>
   )
 }

@@ -6,7 +6,7 @@ export function Panorama({ data }: { data: Dashboard }) {
   return (
     <div className="stack" style={{ display: 'grid', gap: 16 }}>
       <BrazilMap data={data} />
-      <DataTable items={data.territories} />
+      <DataTable items={data.territories} meta={data.metadata} filters={data.filters} />
     </div>
   )
 }

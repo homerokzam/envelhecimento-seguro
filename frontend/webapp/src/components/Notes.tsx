@@ -19,7 +19,9 @@ export function Notes({ data }: { data: Dashboard }) {
   const incomplete = Object.keys(m.incompleteYears)
   return (
     <>
-      {!m.pilotOk && <Alert type="warning" showIcon style={{ marginBottom: 8 }} title="Base sem conciliação aprovada com o TABNET." />}
+      {m.partialLoad && <Alert type="info" showIcon style={{ marginBottom: 8 }}
+        title={`Carga em andamento: já estão disponíveis ${m.years.join(', ')}. Os demais anos aparecem conforme forem concluídos.`} />}
+      {!m.pilotOk && !m.partialLoad && <Alert type="warning" showIcon style={{ marginBottom: 8 }} title="Base sem conciliação aprovada com o TABNET." />}
       {incomplete.length > 0 && <Alert type="info" showIcon style={{ marginBottom: 8 }}
         title={`Anos incompletos fora da base: ${incomplete.join(', ')}.`} />}
       <Alert type="info" showIcon style={{ marginBottom: 8 }} title={

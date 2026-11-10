@@ -45,7 +45,7 @@ class State:
                           if path.with_name("municipios.csv").exists() else None)
         meta = {key: manifest.get(key) for key in (
             "version", "createdAt", "source", "pysusVersion", "populationEdition", "caseDefinition",
-            "unit", "years", "incompleteYears", "exclusions", "ignoredSexAdmissions", "sample")}
+            "unit", "years", "incompleteYears", "exclusions", "ignoredSexAdmissions", "sample", "partialLoad")}
         meta["source"] = SOURCE  # a citação vem do código: bases antigas também mostram as fontes originais
         meta["pilotOk"] = bool(manifest.get("pilot", {}).get("ok"))
         with self.lock:
@@ -105,14 +105,16 @@ class Job:
             if self.info["state"] == "running":
                 return False
             self.info = {"state": "running", "done": 0, "total": 0, "stage": "Iniciando",
-                         "error": None, "startedAt": time.time()}
+                         "error": None, "startedAt": time.time(),
+                         "year": None, "running": [], "finished": [], "yearsDone": []}
             self._save()
         threading.Thread(target=self._run, args=(refresh, sample), daemon=True).start()
         return True
 
-    def _progress(self, done, total, stage):
+    def _progress(self, done, total, stage, **detail):
+        """`detail`: year, running (UFs em leitura), finished (UFs do ano prontas), yearsDone."""
         with self.lock:
-            self.info.update(done=done, total=total, stage=stage)
+            self.info.update(done=done, total=total, stage=stage, **detail)
             if time.time() - self.last_save >= 30:
                 self._save()
 
@@ -120,7 +122,9 @@ class Job:
         try:
             from etl import build  # noqa: PLC0415 - PySUS só é exigido ao baixar
             extra = {"years": build.SAMPLE_YEARS, "ufs": build.SAMPLE_UFS} if sample else {}
-            build.run(progress=self._progress, refresh=refresh, directory=self.state.directory, **extra)
+            # a cada ano concluído o ETL ativa uma versão: recarregar para a interface já mostrar os dados
+            build.run(progress=self._progress, refresh=refresh, directory=self.state.directory,
+                      on_publish=self.state.reload, **extra)
             self.state.reload()
             result = {"state": "done", "stage": "Concluído", "error": None}
         except ModuleNotFoundError as error:
@@ -167,6 +171,7 @@ def create_handler(state, job):
             if sample and ENVIRONMENT != "local":
                 self.send_json(400, {"detail": "A amostra só está disponível em ambiente local."})
                 return
+            sample = sample or ENVIRONMENT == "local"  # no local, toda carga é só a amostra (nunca a base completa)
             started = job.start(refresh=bool(body.get("refresh")), sample=sample)
             self.send_json(202 if started else 409,
                            self.status_payload() if started else {"detail": "Já existe um download em andamento."})
