@@ -221,5 +221,43 @@ class PilotAndBuildTests(unittest.TestCase):
             self.assertEqual((top[0]["name"], top[0]["admissions"]), ("Brasília", 2))
 
 
+    def test_sample_reads_only_given_ufs_and_never_zeroes_the_others(self):
+        from analytics.data import STATES
+        from etl.sources import expected_files
+
+        self.assertEqual({uf for uf, _y, _m in expected_files([2024], ["DF"])}, {"DF"})
+        self.assertEqual(len(expected_files([2024], ["DF", "GO"])), 24)
+
+        def fetch(uf, year, month, cache):
+            return ([aih(MUNIC_RES="530010")] * 2 + [aih(MUNIC_RES="355030")]) if (uf, month) == ("DF", 1) else []
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            pop = root / "pop.csv"
+            with pop.open("w", encoding="utf-8", newline="") as h:
+                w = csv.writer(h)
+                w.writerow(["year", "uf", "sex", "age", "population"])
+                for uf in STATES:
+                    for sex in "FM":
+                        for age in (60, 70, 80):
+                            w.writerow([2024, uf, sex, age, 1000])
+            ref = root / "ref.csv"
+            ref.write_text("escopo,internacoes,obitos,dias_permanencia,valor_aprovado\n"
+                           "BR,2,0,10,2001\nDF,2,0,10,2001\nSP,0,0,0,0\n", encoding="utf-8")
+            old = pilot.compare.__defaults__
+            try:
+                pilot.compare.__defaults__ = (ref,)
+                manifest = build.run(directory=root / "data", population_csv=pop, fetch=fetch, years=[2024],
+                                     ufs=["df", "GO"])
+                with self.assertRaises(build.PilotBlocked):  # sem UF do piloto, não publica
+                    build.run(directory=root / "data2", population_csv=pop, fetch=fetch, years=[2024], ufs=["GO"])
+            finally:
+                pilot.compare.__defaults__ = old
+            self.assertEqual(manifest["sample"], {"ufs": ["DF", "GO"], "years": [2024]})
+            self.assertEqual(set(manifest["pilot"]["scopes"]), {"DF"})
+            path, _ = store.active(root / "data")
+            self.assertEqual({r.uf for r in load(path)}, {"DF", "GO"})
+
+
 if __name__ == "__main__":
     unittest.main()

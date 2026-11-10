@@ -89,7 +89,7 @@ export function Perfil({ data }: { data: Dashboard }) {
   const chart = (key: string, unit?: string) => dims[key] && <DimChart dim={dims[key]} base={base} unit={unit} />
   const trend = (key: string) => dims[key] && <ShareTrend dim={dims[key]} base={base} />
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
+    <div className="stack" style={{ display: 'grid', gap: 16 }}>
       <Alert type="info" showIcon title="Aqui as barras mostram participação, não taxa: não há população por categoria. Os filtros de período, UF, idade e sexo valem para todos os gráficos. Passe o mouse para ver mortalidade, permanência e valor médio de cada grupo; grupos com menos de 20 internações mostram só a contagem." />
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>{chart('injury', 'Lesão no diagnóstico principal')}</Col>

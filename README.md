@@ -12,6 +12,14 @@ npm --prefix frontend/webapp ci
 dotnet run --project aspire/EnvelhecimentoSeguro.AppHost
 ```
 
+Só `npm run dev` **não basta**: o Vite apenas serve a interface e repassa `/api` para o .NET, que repassa para o Python. Sem as três camadas aparece "Não foi possível conectar ao serviço de análise". Suba tudo pelo Aspire (acima).
+
+Sem base local, o painel fica vazio. Para uma **amostra real e pequena** (2023 e 2024, DF, GO e AP, ~72 arquivos, minutos; o Brasil fica parcial):
+
+```sh
+(cd backend/webapi-python && .venv/bin/python -m etl build --sample)   # ou --years 2023,2024 --ufs DF,GO,AP,SP
+```
+
 No painel do Aspire, abra o endpoint de `webapp`. O AppHost usa `backend/webapi-python/.venv` (criado pelo `uv sync`) quando existe; senão cai no `python3.14` do PATH, que precisaria ter PySUS e pandas. `PYTHON_EXECUTABLE` força outro interpretador. A API de consulta em si só usa a biblioteca padrão; o PySUS só é exigido no download.
 
 ## Arquitetura

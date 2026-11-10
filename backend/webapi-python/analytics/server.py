@@ -6,13 +6,20 @@ import logging
 import os
 import threading
 import time
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from . import store
 from .profile import load_municipalities, load_profile, municipalities_payload, profile_payload
-from .data import SOURCE, dashboard, load, parse_filters, reference_weights, years_of
+from .data import SAMPLE_UFS, SAMPLE_YEARS, SOURCE, dashboard, load, parse_filters, reference_weights, years_of
 
+def detect_environment():
+    """Dentro de um container (o deploy) é produção; fora dele, máquina de desenvolvimento. Sem configuração."""
+    return "production" if os.path.exists("/.dockerenv") else "local"
+
+
+ENVIRONMENT = detect_environment()
 EXPECTED_FILES = 27 * 12 * 10  # estimativa exibida antes do primeiro download (2015–2024)
 
 
@@ -20,7 +27,7 @@ class State:
     """Base ativa em memória. Troca atômica após cada carga."""
 
     def __init__(self, directory):
-        self.directory = directory
+        self.directory = Path(directory)
         self.lock = threading.Lock()
         self.rows, self.weights, self.metadata = (), None, None
         self.profile, self.municipalities = None, None
@@ -38,7 +45,7 @@ class State:
                           if path.with_name("municipios.csv").exists() else None)
         meta = {key: manifest.get(key) for key in (
             "version", "createdAt", "source", "pysusVersion", "populationEdition", "caseDefinition",
-            "unit", "years", "incompleteYears", "exclusions", "ignoredSexAdmissions")}
+            "unit", "years", "incompleteYears", "exclusions", "ignoredSexAdmissions", "sample")}
         meta["source"] = SOURCE  # a citação vem do código: bases antigas também mostram as fontes originais
         meta["pilotOk"] = bool(manifest.get("pilot", {}).get("ok"))
         with self.lock:
@@ -60,29 +67,60 @@ class Job:
     def __init__(self, state):
         self.state = state
         self.lock = threading.Lock()
-        self.info = {"state": "idle", "done": 0, "total": 0, "stage": "", "error": None, "startedAt": None}
+        self.path = state.directory / "job.json"
+        self.last_save = 0.0
+        self.info = self._recover()
+
+    def _recover(self):
+        """Estado da última carga. Uma carga 'running' no disco foi morta por reinício do serviço."""
+        idle = {"state": "idle", "done": 0, "total": 0, "stage": "", "error": None, "startedAt": None}
+        try:
+            saved = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return idle
+        if saved.get("state") == "running":
+            when = time.strftime("%d/%m/%Y %H:%M", time.localtime(saved.get("updatedAt") or saved.get("startedAt") or 0))
+            logging.getLogger("analytics.job").warning("Carga interrompida por reinício (último sinal %s)", when)
+            return {**idle, "state": "error", "done": saved.get("done", 0), "total": saved.get("total", 0),
+                    "error": f"Carga interrompida por reinício do serviço (último sinal em {when}). "
+                             "Clique em Atualizar dados para retomar: o que já foi baixado fica em cache."}
+        return {**idle, **{k: saved[k] for k in ("state", "error") if k in saved}}
+
+    def _save(self):
+        """Chamar com o lock preso. Falha de disco não derruba a carga."""
+        self.last_save = time.time()
+        try:
+            tmp = self.path.with_name("job.json.tmp")
+            tmp.write_text(json.dumps({**self.info, "updatedAt": self.last_save}), encoding="utf-8")
+            tmp.replace(self.path)
+        except OSError:
+            logging.getLogger("analytics.job").warning("Não foi possível gravar %s", self.path)
 
     def snapshot(self):
         with self.lock:
             return dict(self.info)
 
-    def start(self, refresh):
+    def start(self, refresh, sample=False):
         with self.lock:
             if self.info["state"] == "running":
                 return False
             self.info = {"state": "running", "done": 0, "total": 0, "stage": "Iniciando",
                          "error": None, "startedAt": time.time()}
-        threading.Thread(target=self._run, args=(refresh,), daemon=True).start()
+            self._save()
+        threading.Thread(target=self._run, args=(refresh, sample), daemon=True).start()
         return True
 
     def _progress(self, done, total, stage):
         with self.lock:
             self.info.update(done=done, total=total, stage=stage)
+            if time.time() - self.last_save >= 30:
+                self._save()
 
-    def _run(self, refresh):
+    def _run(self, refresh, sample=False):
         try:
             from etl import build  # noqa: PLC0415 - PySUS só é exigido ao baixar
-            build.run(progress=self._progress, refresh=refresh, directory=self.state.directory)
+            extra = {"years": build.SAMPLE_YEARS, "ufs": build.SAMPLE_UFS} if sample else {}
+            build.run(progress=self._progress, refresh=refresh, directory=self.state.directory, **extra)
             self.state.reload()
             result = {"state": "done", "stage": "Concluído", "error": None}
         except ModuleNotFoundError as error:
@@ -92,6 +130,7 @@ class Job:
             result = {"state": "error", "error": str(error)}
         with self.lock:
             self.info.update(result)
+            self._save()
 
 
 def create_handler(state, job):
@@ -110,7 +149,9 @@ def create_handler(state, job):
         def status_payload(self):
             _, _, metadata = state.snapshot()
             return {"hasData": metadata is not None, "metadata": metadata, "job": job.snapshot(),
-                    "estimatedFiles": EXPECTED_FILES}
+                    "estimatedFiles": EXPECTED_FILES, "environment": ENVIRONMENT,
+                    "sampleFiles": 12 * len(SAMPLE_YEARS) * len(SAMPLE_UFS),
+                    "sampleUfs": SAMPLE_UFS, "sampleYears": SAMPLE_YEARS}
 
         def do_POST(self):
             if urlsplit(self.path).path != "/dataset/update":
@@ -122,7 +163,11 @@ def create_handler(state, job):
             except ValueError:
                 self.send_json(400, {"detail": "Corpo inválido."})
                 return
-            started = job.start(refresh=bool(body.get("refresh")))
+            sample = bool(body.get("sample"))
+            if sample and ENVIRONMENT != "local":
+                self.send_json(400, {"detail": "A amostra só está disponível em ambiente local."})
+                return
+            started = job.start(refresh=bool(body.get("refresh")), sample=sample)
             self.send_json(202 if started else 409,
                            self.status_payload() if started else {"detail": "Já existe um download em andamento."})
 

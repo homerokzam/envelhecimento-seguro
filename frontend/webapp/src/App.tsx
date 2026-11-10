@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { Alert, Button, Spin, Tabs } from 'antd'
 import { errorMessage } from './api/client'
-import { exportUrl, useDashboard } from './api/hooks'
+import { exportUrl, useDashboard, useDatasetStatus, useIsLocal } from './api/hooks'
 import type { Dashboard } from './api/types'
 import { DatasetPanel } from './components/DatasetPanel'
 import { Filters } from './components/Filters'
@@ -17,7 +17,12 @@ import { Perfil } from './tabs/Perfil'
 export function App() {
   const { start, end, uf, age, sex, tab, setTab, normalizeYears } = useUi()
   const filters = { start, end, uf, age, sex }
-  const query = useDashboard(filters)
+  // os anos válidos vêm do estado da base; só consulta depois de ajustar o padrão 2015–2024 a eles
+  const baseYears = useDatasetStatus().data?.metadata?.years
+  const yearsReady = !baseYears?.length || (baseYears.includes(start) && baseYears.includes(end))
+  useEffect(() => { if (baseYears?.length) normalizeYears(baseYears) }, [baseYears?.join(','), normalizeYears])
+  const query = useDashboard(filters, yearsReady)
+  const local = useIsLocal()
   const result = query.data
   const data: Dashboard | undefined = result && !result.empty ? result : undefined
 
@@ -34,7 +39,7 @@ export function App() {
   return (
     <>
       <header className="hero"><div className="shell">
-        <p className="eyebrow">IESB / PROJETO DE PESQUISA</p>
+        <p className="eyebrow">IESB / PROJETO DE PESQUISA{local && <span className="env-badge">AMBIENTE LOCAL</span>}</p>
         <h1>Envelhecimento Seguro</h1>
         <p>Internações por quedas em pessoas de 60 anos ou mais</p>
       </div></header>
@@ -44,6 +49,9 @@ export function App() {
           action={<Button onClick={() => query.refetch()}>Tentar novamente</Button>} />}
         {!result && !query.isError && <Spin description="Consultando indicadores…"><div style={{ padding: 48 }} /></Spin>}
         {result?.empty && <Alert type="info" showIcon title="Os indicadores aparecem depois que a base for baixada." />}
+        {data?.metadata.sample && <Alert type="warning" showIcon style={{ marginBottom: 8 }}
+          title={`Amostra local: ${data.metadata.sample.years.join(', ')} · ${data.metadata.sample.ufs.join(', ')}`}
+          description="Só estas UFs foram baixadas. Totais e taxas do Brasil ficam parciais; as demais UFs aparecem sem dados." />}
         {data && <AboutData metadata={data.metadata} />}
         {(data || (result?.empty)) && <Filters options={data?.options} />}
         {data && <>

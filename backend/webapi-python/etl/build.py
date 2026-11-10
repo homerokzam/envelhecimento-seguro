@@ -11,7 +11,7 @@ from collections import Counter
 from pathlib import Path
 
 from analytics import store
-from analytics.data import FIELDS, SOURCE, load
+from analytics.data import FIELDS, SAMPLE_UFS, SAMPLE_YEARS, SOURCE, load  # noqa: F401 - reexportados para o CLI
 from analytics.profile import MUNICIPALITY_FIELDS, PROFILE_FIELDS, load_municipalities, load_profile
 
 log = logging.getLogger(__name__)
@@ -63,6 +63,7 @@ def municipality_names(cache):
 def write_profile(folder, profile_cells, munic_cells, complete, main_rows, cache):
     """Grava profile.csv e municipios.csv só para estratos e anos da base principal, já validados."""
     present = {(r.year, r.uf, r.age, r.sex) for r in main_rows}
+    sampled_ufs = {r.uf for r in main_rows}  # em amostra, residentes de outras UFs ficam fora da base
     components = ("admissions", "deaths", "stay_days", "stay_count", "approved_cents")
     with (folder / "profile.csv").open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
@@ -75,14 +76,19 @@ def write_profile(folder, profile_cells, munic_cells, complete, main_rows, cache
         writer = csv.writer(handle)
         writer.writerow(MUNICIPALITY_FIELDS)
         for (year, uf, code), c in sorted(munic_cells.items()):
-            if year in complete:
+            if year in complete and uf in sampled_ufs:
                 writer.writerow([year, uf, code, names.get(code, ""), *(c[name] for name in components)])
     load_profile(folder / "profile.csv", main_rows)  # confere que fecha com a base antes de publicar
     load_municipalities(folder / "municipios.csv", main_rows)
 
 
-def run(progress=None, refresh=False, directory=None, population_csv=None, fetch=sources.read_month, years=None):
-    """Constrói e ativa uma nova versão. `progress(done, total, stage)` informa o andamento."""
+def run(progress=None, refresh=False, directory=None, population_csv=None, fetch=sources.read_month, years=None,
+        ufs=None):
+    """Constrói e ativa uma nova versão. `progress(done, total, stage)` informa o andamento.
+
+    `ufs` gera uma amostra real (para uso local): só essas UFs são lidas, as demais ficam
+    ausentes (nunca zeradas) e o piloto concilia apenas os escopos cobertos.
+    """
     directory = Path(directory or store.data_dir())
     cache = directory / "cache"
     directory.mkdir(parents=True, exist_ok=True)
@@ -91,15 +97,19 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
     manual = population_csv or os.environ.get("POPULATION_CSV")
     notify(0, 1, "Obtendo população (TABNET, projeção 2024)")
     pop = population.load_population(manual) if manual else population.fetch_tabnet(years, cache)
-    files = sources.expected_files(years)
+    ufs = sorted({u.upper() for u in ufs}) if ufs else None
+    if ufs and set(ufs) - set(sources.UFS):
+        raise ValueError(f"UF desconhecida na amostra: {sorted(set(ufs) - set(sources.UFS))}")
+    scopes = [s for s in pilot.SCOPES if s in ufs] if ufs else list(pilot.SCOPES)
+    files = sources.expected_files(years, ufs)
     total = len(files)
     latest = max(years)
     cutoff = latest * 12 + 12 - sources.REFRESH_MONTHS  # meses recentes são rebaixados na atualização
     parts, excluded, downloaded, failed_years = [], {}, 0, {}
     profile_parts, munic_parts = [], []
     cached_files, pilot_files = 0, {}
-    log.info("Iniciando carga: anos %s-%s, %d arquivos, refresh=%s, cache=%s",
-             min(years), latest, total, refresh, cache)
+    log.info("Iniciando carga: anos %s-%s, %d arquivos, refresh=%s, cache=%s, amostra=%s",
+             min(years), latest, total, refresh, cache, ufs or "não")
     for done, (uf, year, month) in enumerate(files, 1):
         if year in failed_years:
             continue
@@ -145,17 +155,21 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
         log.warning("Arquivos de %d sem nenhuma queda 60+: %d (primeiros 20: %s)", pilot.PILOT_YEAR, len(empty), empty[:20])
     sex_i = sum(c["admissions"] for (y, _u, _a, sx), c in cells.items() if y == pilot.PILOT_YEAR and sx == "I")
     log.info("Piloto %d: internações com sexo ignorado=%d (entram no total, mas não em M/F)", pilot.PILOT_YEAR, sex_i)
-    totals_2024 = pilot.totals(cells)
+    totals_2024 = pilot.totals(cells, scopes)
     log.info("Células agregadas: %d | arquivos ignorados por ano com falha: %s | totais 2024: %s",
              len(cells), sorted(failed_years), json.dumps(totals_2024, ensure_ascii=False))
     notify(total, total, "Conciliando piloto com o TABNET")
-    report = pilot.compare(pilot.totals(cells))
+    if not scopes or pilot.PILOT_YEAR not in complete:
+        report = {"ok": False, "reason": f"A amostra precisa incluir {pilot.PILOT_YEAR} e ao menos uma UF do piloto "
+                  f"({', '.join(s for s in pilot.SCOPES if s != 'BR')}).", "scopes": {}}
+    else:
+        report = pilot.compare(pilot.totals(cells, scopes))
     pilot.write_report(report, directory)
     if not report["ok"]:
         raise PilotBlocked(report.get("reason") or "Piloto divergente do TABNET; veja pilot_report.json.")
 
     notify(total, total, "Gerando base")
-    rows, missing = to_rows(cells, pop, complete)
+    rows, missing = to_rows(cells, pop, complete, ufs)
     if not rows:
         raise RuntimeError("Nenhum estrato com população disponível.")
     version = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -189,6 +203,8 @@ def run(progress=None, refresh=False, directory=None, population_csv=None, fetch
         "filesProcessed": total,
         "filesDownloaded": downloaded,
     }
+    if ufs:
+        manifest["sample"] = {"ufs": ufs, "years": complete}
     (folder / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     store.activate(directory, version)
     notify(total, total, "Concluído")

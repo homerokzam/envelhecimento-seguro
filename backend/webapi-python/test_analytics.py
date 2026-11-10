@@ -75,5 +75,22 @@ class AnalyticsTests(unittest.TestCase):
                 load(path)
 
 
+class JobPersistenceTests(unittest.TestCase):
+    def test_running_job_on_disk_becomes_error_after_restart(self):
+        import json
+        from analytics.server import Job, State
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "job.json").write_text(json.dumps(
+                {"state": "running", "done": 120, "total": 3240, "startedAt": 1.0, "updatedAt": 2.0}))
+            info = Job(State(Path(d))).snapshot()
+            self.assertEqual((info["state"], info["done"], info["total"]), ("error", 120, 3240))
+            self.assertIn("interrompida", info["error"])
+
+    def test_without_file_job_is_idle(self):
+        from analytics.server import Job, State
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(Job(State(Path(d))).snapshot()["state"], "idle")
+
+
 if __name__ == "__main__":
     unittest.main()

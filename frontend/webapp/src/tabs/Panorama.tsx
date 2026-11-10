@@ -4,7 +4,7 @@ import { DataTable } from '../components/DataTable'
 
 export function Panorama({ data }: { data: Dashboard }) {
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
+    <div className="stack" style={{ display: 'grid', gap: 16 }}>
       <BrazilMap data={data} />
       <DataTable items={data.territories} />
     </div>

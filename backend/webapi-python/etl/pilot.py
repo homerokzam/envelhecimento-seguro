@@ -16,10 +16,16 @@ PILOT_YEAR = 2024
 TABNET = Path(__file__).parent / "pilot" / "tabnet_2024.csv"
 
 
-def totals(cells):
-    """Totais por escopo (BR, DF, SP) a partir de células {(ano, uf, faixa, sexo): contadores}."""
+SCOPES = ("BR", "DF", "SP")
+
+
+def totals(cells, scopes=SCOPES):
+    """Totais por escopo (BR, DF, SP) a partir de células {(ano, uf, faixa, sexo): contadores}.
+
+    Numa amostra de UFs, só os escopos cobertos entram (BR exige as 27 UFs).
+    """
     result = {scope: {"internacoes": 0, "obitos": 0, "dias_permanencia": 0, "valor_aprovado": 0.0}
-              for scope in ("BR", "DF", "SP")}
+              for scope in scopes}
     for (year, uf, _age, _sex), c in cells.items():
         if year != PILOT_YEAR:
             continue

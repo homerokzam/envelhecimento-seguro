@@ -166,14 +166,15 @@ def merge_cells(parts):
     return total
 
 
-def to_rows(cells, population, years):
+def to_rows(cells, population, years, ufs=None):
     """Estratos completos (com zero verificado) para os anos completos informados.
 
     `population[(ano, uf, faixa, sexo)]` vem da projeção do Ministério da Saúde. Estratos
     sem população ficam fora (nunca preenchidos com zero). Sexo ignorado só entra se houver casos.
+    `ufs` restringe às UFs efetivamente lidas (amostra): as demais ficam ausentes, não zeradas.
     """
     rows, missing = [], []
-    ufs = sorted(set(UF_BY_CODE.values()))
+    ufs = sorted(ufs or set(UF_BY_CODE.values()))
     for year in sorted(years):
         for uf in ufs:
             for age in AGES:

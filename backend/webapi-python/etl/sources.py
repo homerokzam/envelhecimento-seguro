@@ -22,8 +22,8 @@ UFS = sorted(UF_BY_CODE.values())
 FILE_FIELDS = REQUIRED_FIELDS + PROFILE_FIELDS + ("COD_IDADE",) + DIAG_FIELDS
 
 
-def expected_files(years):
-    return [(uf, year, month) for year in years for month in range(1, 13) for uf in UFS]
+def expected_files(years, ufs=None):
+    return [(uf, year, month) for year in years for month in range(1, 13) for uf in (ufs or UFS)]
 
 
 def agg_path(cache_dir, uf, year, month):

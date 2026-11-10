@@ -13,6 +13,10 @@ AGES = ("60–69", "70–79", "80+")
 SEXES = ("F", "M")
 IGNORED_SEX = "I"  # só contagens; sem população, entra apenas em "Ambos"
 FIRST_YEAR, DEFAULT_LAST_YEAR = 2015, 2024
+# Amostra real e pequena (~72 arquivos), só para uso local; inclui o DF porque é escopo do piloto
+SAMPLE_YEARS = [2023, 2024]
+SAMPLE_UFS = ["DF", "GO", "AP"]
+
 SOURCE = ("Ministério da Saúde/DATASUS, Sistema de Informações Hospitalares (SIH/SUS, arquivos RD); "
           "população: projeção MS/SEIDIGI/DEMAS (IBGE), TABNET; acesso via PySUS")
 FIELDS = ("year", "uf", "age", "sex", "admissions", "population", "deaths", "stay_days", "stay_count", "approved_cents")

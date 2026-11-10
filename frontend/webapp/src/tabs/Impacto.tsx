@@ -13,7 +13,7 @@ export function Impacto({ data }: { data: Dashboard }) {
   const base = { meta: data.metadata, filters: data.filters }
   const layout = { ...pandemic(years), xaxis: { dtick: 1 } }
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
+    <div className="stack" style={{ display: 'grid', gap: 16 }}>
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={12}><ChartPlot {...base} title="Permanência média" unit="Dias por ano de processamento"
           fileName="permanencia" data={line('meanStay')} layout={layout} /></Col>

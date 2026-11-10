@@ -15,6 +15,10 @@ on:
         description: 'Tag da imagem já publicada no ghcr (ex.: v261108)'
         type: string
         required: true
+      force:
+        description: 'Fazer deploy mesmo com carga de dados em andamento (a carga será interrompida)'
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-${{ github.ref }}
@@ -120,14 +124,21 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
+          FORCE: ${{ inputs.force }}
         with:
           host: ${{ env.SSH_HOST }}
           username: ${{ env.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ env.SSH_PORT }}
-          envs: GHCR_TOKEN,GHCR_USER
+          envs: GHCR_TOKEN,GHCR_USER,FORCE
           script: |
             cd "$HOME/envelhecimento-seguro"
+            # Recriar o container mata a carga do SIH/SUS (horas). Só segue se não houver uma em andamento.
+            RUNNING=$(docker exec envelhecimento-seguro python3 -c "import json,urllib.request as u;print(json.load(u.urlopen('http://127.0.0.1:8091/dataset/status',timeout=5))['job']['state'])" 2>/dev/null || echo none)
+            if [ "$RUNNING" = "running" ] && [ "$FORCE" != "true" ]; then
+              echo "::error::Há uma carga de dados em andamento. Espere terminar ou rode o workflow manualmente com force=true."
+              exit 1
+            fi
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             docker compose -p envelhecimento-seguro pull
             docker compose -p envelhecimento-seguro up -d

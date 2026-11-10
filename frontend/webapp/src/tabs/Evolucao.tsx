@@ -23,7 +23,7 @@ export function Evolucao({ data }: { data: Dashboard }) {
     y: value(items, key), marker: { color: GREEN }, hovertemplate: '%{x}: %{y:.1f}<extra></extra>' }]
   const base = { meta: data.metadata, filters: data.filters }
   return (
-    <div style={{ display: 'grid', gap: 16 }}>
+    <div className="stack" style={{ display: 'grid', gap: 16 }}>
       <ChartPlot {...base} title="Evolução das internações" unit="Internações por ano de processamento" fileName="evolucao"
         data={[{ type: 'bar', x: years, y: value(data.series, 'admissions'), marker: { color: GREEN },
           hovertemplate: '%{x}: %{y:,}<extra></extra>' }]}

@@ -33,6 +33,7 @@ export interface Metadata {
   exclusions: Record<string, Record<string, number>>
   ignoredSexAdmissions: Record<string, number>
   pilotOk: boolean
+  sample?: { ufs: string[]; years: number[] } | null
 }
 
 export interface Filters {
@@ -108,4 +109,8 @@ export interface DatasetStatus {
   metadata: Metadata | null
   job: JobInfo
   estimatedFiles: number
+  environment: 'local' | 'production'
+  sampleFiles: number
+  sampleUfs: string[]
+  sampleYears: number[]
 }

@@ -13,13 +13,32 @@ body { margin: 0; background: #f3f6f5; color: #143536; }
   .filters { display: grid !important; grid-template-columns: 1fr 1fr; gap: 12px !important; }
   .filters > label { min-width: 0 !important; }
   .filters > label:nth-child(3) { grid-column: 1 / -1; }
-  .ant-tabs-nav-wrap { overflow-x: auto; }
-  .ant-tabs-extra-content { width: 100%; padding-bottom: 8px; }
+  /* abas em grade 2x2 (sem rolagem escondida) e o botão de CSV em linha própria */
+  .ant-tabs-nav { flex-wrap: wrap; }
+  .ant-tabs-nav-wrap { flex: 1 1 100%; overflow: visible !important; }
+  .ant-tabs-nav-operations { display: none !important; }
+  .ant-tabs-nav-list { display: grid !important; grid-template-columns: 1fr 1fr; width: 100%; transform: none !important; }
+  .ant-tabs-tab { visibility: visible !important; order: 0 !important; margin: 0 !important; padding: 10px 6px !important;
+    justify-content: center; text-align: center; white-space: normal; line-height: 1.25; }
+  .ant-tabs-ink-bar { display: none; }
+  .ant-tabs-tab-active { background: #e3f1ed; border-radius: 6px; }
+  .ant-tabs-extra-content { flex: 1 1 100%; padding: 8px 0; }
   .ant-tabs-extra-content .ant-btn { width: 100%; }
   .ant-card-head { padding: 0 12px; flex-wrap: wrap; }
   .ant-card-head-wrapper { flex-wrap: wrap; gap: 4px; padding: 8px 0; }
+  .ant-card-head-title, .ant-card-extra { flex: 1 1 100%; overflow: visible; text-overflow: clip; margin: 0 !important; padding: 0 !important; }
+  .ant-tabs-extra-content .ant-btn { display: block; }
   .ant-card-body { padding: 8px !important; }
   .map-toolbar { justify-content: space-between !important; }
   .map-toolbar .ant-select { flex: 1; }
   .ant-table-wrapper { overflow-x: auto; }
 }
+.stack { grid-template-columns: minmax(0, 1fr); }
+.stack > *, main.shell > * { min-width: 0; max-width: 100%; }
+.js-plotly-plot, .plot-container { max-width: 100%; }
+html, body { overflow-x: hidden; }
+@media (max-width: 767px) {
+  .map-toolbar { flex-wrap: nowrap; }
+  .map-toolbar .ant-select { min-width: 0 !important; }
+}
+.env-badge { margin-left: 12px; padding: 2px 8px; border-radius: 4px; background: #f5a623; color: #2b1d00; letter-spacing: 0.08em; }
