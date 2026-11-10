@@ -23,6 +23,7 @@ from . import pilot, population, sources
 from .transform import merge_cells, to_rows
 
 FIRST_YEAR = 2015
+LAST_YEAR = 2024  # o estudo cobre 2015–2024; anos posteriores só entram com --years explícito
 IBGE_MUNICIPALITIES = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios"
 CID = ("Diagnóstico principal com lesão (CID-10 S00–T98) e causa externa W00–W19 em campo secundário "
        "(DIAG_SECUN, DIAGSEC1–9), como na tabela de causas externas do TABNET; AIH tipo 1")
@@ -33,7 +34,7 @@ class PilotBlocked(RuntimeError):
 
 
 def candidate_years(today=None):
-    return list(range(FIRST_YEAR, (today or dt.date.today()).year))
+    return list(range(FIRST_YEAR, min((today or dt.date.today()).year, LAST_YEAR + 1)))
 
 
 def pysus_version():

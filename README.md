@@ -39,7 +39,7 @@ React (antd, Plotly) → /api (proxy do Vite) → Web API C#/.NET 10 → API Pyt
 
 Fontes originais: Ministério da Saúde/DATASUS, Sistema de Informações Hospitalares do SUS (SIH/SUS, arquivos RD, FTP `ftp.datasus.gov.br`) e projeção populacional MS/SEIDIGI/DEMAS (IBGE) pelo TABNET. O PySUS é só a ferramenta de acesso.
 
-Sem base carregada, o painel mostra "Nenhuma base carregada" e o botão **Baixar dados do SUS**. O download nunca começa sozinho: a carga completa são cerca de 3.240 arquivos mensais por UF (2015–2024, mais anos completos seguintes), leva horas e ocupa alguns GB em `backend/webapi-python/data/cache`. O botão **Atualizar dados** processa o que falta e rebaixa os 6 meses mais recentes (o SIH reprocessa meses recentes). Se uma carga falha, a versão anterior continua ativa. Pela linha de comando: `cd backend/webapi-python && python -m etl build [--refresh]`.
+Sem base carregada, o painel mostra "Nenhuma base carregada" e o botão **Baixar dados do SUS**. O download nunca começa sozinho: a carga completa são cerca de 3.240 arquivos mensais por UF (2015–2024, o período do estudo), leva horas e ocupa alguns GB em `backend/webapi-python/data/cache`. O botão **Atualizar dados** processa o que falta e rebaixa os 6 meses mais recentes (o SIH reprocessa meses recentes). Se uma carga falha, a versão anterior continua ativa. Pela linha de comando: `cd backend/webapi-python && python -m etl build [--refresh]`.
 
 Definição (conforme o planejamento da pesquisa):
 
