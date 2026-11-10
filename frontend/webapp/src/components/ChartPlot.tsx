@@ -78,8 +78,14 @@ export function ChartPlot({ title, unit, fileName, data, layout, meta, filters, 
   const footer = footerText(meta, filters, unit, compact)
   const lines = footer.split('<br>').length
   // margem inferior = altura do rodapé (10px ≈ 12px de linha) + respiro; no desktop mantém 90
-  const m = { t: 20, l: compact ? 44 : 60, r: compact ? 12 : 20, b: compact ? 42 + lines * 12 : 90, ...layout?.margin }
-  const below = m.b! - (compact ? lines * 12 + 6 : 16)  // do topo do rodapé até a base da área do gráfico
+  // A margem inferior é sempre calculada: espaço do eixo (axisB) + altura do rodapé. O `b` do chamador é ignorado,
+  // senão um rodapé de várias linhas sobrescreve o eixo.
+  const { b: _ignored, ...userMargin } = layout?.margin ?? {}
+  const axisB = compact ? 40 : 56
+  const footerH = lines * 12 + 20
+  const m = { t: 20, l: compact ? 44 : 60, r: compact ? 12 : 20, ...userMargin, b: axisB + footerH }
+  m.l = Math.min(m.l!, Math.round(width * 0.55))  // rótulos largos nunca comem mais da metade do gráfico
+  const below = axisB  // do topo do rodapé até a base da área do gráfico
   return (
     <Card title={title} extra={<span className="chart-extra no-print"><span style={{ color: '#4c6668' }}>{unit}</span>
       <ExportMenu label={`Exportar gráfico ${title}`} items={items} loading={busy} /></span>}>

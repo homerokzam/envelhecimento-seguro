@@ -25,7 +25,7 @@ export function chartRows(title: string, data: Data[]) {
     if (map && index === 0) return
     const keys = trace.locations ?? trace.x ?? []
     const values = trace.z ?? trace.y ?? []
-    keys.forEach((key, i) => rows.push([trace.name ?? title, key, values[i]]))
+    keys.forEach((key, i) => rows.push([trace.name ?? title, String(key).replace(/<br>/g, ' '), values[i]]))
   })
   return rows
 }

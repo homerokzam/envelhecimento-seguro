@@ -12,29 +12,44 @@ const PALETTE = [GREEN, '#c0762f', '#3b6ea5', '#8a4f9e', '#9aa8a6']
 const HOVER = '%{label}<br>%{value:,} internações (%{customdata[0]:.1f}%)<br>' +
   'Mortalidade %{customdata[1]}<br>Permanência %{customdata[2]}<br>Valor médio %{customdata[3]}<extra></extra>'
 
+/** Quebra rótulos longos em linhas (`<br>`) de até `max` caracteres, só nos espaços. */
+const wrap = (text: string, max = 26) => text.split(' ').reduce<string[]>((lines, word) => {
+  const last = lines.length - 1
+  if (last >= 0 && lines[last].length + word.length + 1 <= max) lines[last] += ' ' + word
+  else lines.push(word)
+  return lines
+}, []).join('<br>')
+const short = (text: string, max = 36) => text.length > max ? text.slice(0, max - 1) + '…' : text
+
 const pct = (v: number | null) => v == null ? '—' : `${fmtDec(v)}%`
 
 /** Barras de uma dimensão: horizontais para categorias, verticais para mês e dia da semana. */
-function DimChart({ dim, base, unit = 'Internações no período' }: { dim: ProfileDim; base: BaseProps; unit?: string }) {
+function DimChart({ dim, base, unit }: { dim: ProfileDim; base: BaseProps; unit?: string }) {
   const items = dim.items
   const horizontal = !dim.ordered
+  unit ??= horizontal ? '% das internações no período' : 'Internações no período'
   const labels = items.map(i => i.label)
   const values = items.map(i => i.admissions)
   const custom = items.map(i => [i.share ?? 0, pct(i.mortality), i.meanStay == null ? '—' : `${fmtDec(i.meanStay)} dias`,
-    i.meanApproved == null ? '—' : fmtMoney(i.meanApproved)])
+    i.meanApproved == null ? '—' : fmtMoney(i.meanApproved), i.admissions])
+  // barras horizontais mostram a participação (%), igual ao rótulo; a contagem fica no hover e no CSV
+  const HOVER_H = '%{customdata[5]}<br>%{customdata[4]:,} internações (%{customdata[0]:.1f}%)<br>' +
+    'Mortalidade %{customdata[1]}<br>Permanência %{customdata[2]}<br>Valor médio %{customdata[3]}<extra></extra>'
   const trace: Data = horizontal
-    ? { type: 'bar', orientation: 'h', y: labels, x: values, customdata: custom, marker: { color: GREEN },
-        text: items.map(i => pct(i.share)), textposition: 'outside', cliponaxis: false,
-        hovertemplate: HOVER.replace('%{label}', '%{y}').replace('%{value:,}', '%{x:,}') }
+    ? { type: 'bar', orientation: 'h', y: items.map(i => wrap(i.label)), x: items.map(i => i.share ?? 0),
+        customdata: custom.map((c, n) => [...c, labels[n]]), marker: { color: GREEN },
+        text: items.map(i => pct(i.share)), textposition: 'outside', cliponaxis: false, hovertemplate: HOVER_H }
     : { type: 'bar', x: labels, y: values, customdata: custom, marker: { color: GREEN },
         hovertemplate: HOVER.replace('%{label}', '%{x}').replace('%{value:,}', '%{y:,}') }
-  const height = horizontal ? Math.max(300, items.length * 30 + 120) : 340
+  // cada categoria ocupa o espaço das suas linhas de rótulo
+  const rows = items.reduce((sum, i) => sum + Math.max(1, wrap(i.label).split('<br>').length), 0)
+  const height = horizontal ? Math.max(300, rows * 17 + items.length * 14 + 100) : 340
   return (
     <ChartPlot {...base} title={dim.title} unit={unit} fileName={`perfil-${dim.key}`} height={height} data={[trace]}
       layout={horizontal
-        ? { margin: { t: 20, l: 20, r: 60, b: 90 }, yaxis: { autorange: 'reversed', automargin: true },
-            xaxis: { automargin: true } }
-        : { margin: { t: 20, l: 60, r: 20, b: 90 } }} />
+        ? { margin: { t: 20, l: 200, r: 60 }, yaxis: { autorange: 'reversed', automargin: false },
+            xaxis: { automargin: true, ticksuffix: '%', rangemode: 'tozero' } }
+        : { margin: { t: 20, l: 60, r: 44 } }} />
   )
 }
 
@@ -46,14 +61,15 @@ function ShareTrend({ dim, base }: { dim: ProfileDim; base: BaseProps }) {
   if (years.length < 2) return null
   const totals = years.map(y => dim.items.reduce((sum, i) => sum + (i.byYear?.[y] ?? 0), 0))
   const traces: Data[] = dim.items.slice(0, 5).map((item, n) => ({
-    type: 'scatter', mode: 'lines+markers', name: item.label, x: years.map(Number),
+    type: 'scatter', mode: 'lines+markers', name: short(item.label, 22), x: years.map(Number),
     y: years.map((y, k) => totals[k] ? (item.byYear?.[y] ?? 0) / totals[k] * 100 : null),
     line: { color: PALETTE[n] }, connectgaps: false, hovertemplate: '%{x}: %{y:.1f}%<extra>' + item.label + '</extra>',
   }))
   return (
     <ChartPlot {...base} title={`${dim.title}: participação ao longo dos anos`} unit="% das internações do ano"
-      fileName={`perfil-${dim.key}-tendencia`} data={traces}
-      layout={{ xaxis: { dtick: 1 }, legend: { orientation: 'h', y: 1.18 }, margin: { t: 60, l: 60, r: 20, b: 90 } }} />
+      fileName={`perfil-${dim.key}-tendencia`} data={traces} height={460}
+      layout={{ xaxis: { dtick: 1, ticksuffix: '' }, yaxis: { ticksuffix: '%', rangemode: 'tozero' },
+        legend: { orientation: 'h', x: 0, y: 1.02, yanchor: 'bottom', font: { size: 11 } }, margin: { t: 110, l: 60, r: 20 } }} />
   )
 }
 
@@ -100,8 +116,8 @@ export function Perfil({ data }: { data: Dashboard }) {
     <div className="stack" style={{ display: 'grid', gap: 16 }}>
       <Alert type="info" showIcon title="Aqui as barras mostram participação, não taxa: não há população por categoria. Os filtros de período, UF, idade e sexo valem para todos os gráficos. Passe o mouse para ver mortalidade, permanência e valor médio de cada grupo; grupos com menos de 20 internações mostram só a contagem." />
       <div className="cols">
-        <div>{chart('injury', 'Lesão no diagnóstico principal')}</div>
-        <div>{chart('fall', 'Causa externa W00–W19')}</div>
+        <div>{chart('injury')}</div>
+        <div>{chart('fall')}</div>
       </div>
       <div className="cols">
         <div>{trend('injury')}</div>
