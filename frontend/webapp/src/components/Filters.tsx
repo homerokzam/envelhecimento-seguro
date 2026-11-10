@@ -11,7 +11,7 @@ export function Filters({ options }: { options?: Dashboard['options'] }) {
   const years = options?.years ?? [start, end]
   const opt = (values: number[]) => values.map(y => ({ value: y, label: String(y) }))
   return (
-    <section aria-label="Filtros da análise" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, margin: '16px 0' }}>
+    <section className="filters" aria-label="Filtros da análise" style={{ display: 'flex', flexWrap: 'wrap', gap: 16, margin: '16px 0' }}>
       {field('Ano inicial', <Select value={start} onChange={setStart} options={opt(years.filter(y => y <= end))} />)}
       {field('Ano final', <Select value={end} onChange={setEnd} options={opt(years.filter(y => y >= start))} />)}
       {field('Residência', <Select value={uf} onChange={v => setFilter('uf', v)}

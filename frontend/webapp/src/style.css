@@ -5,3 +5,21 @@ body { margin: 0; background: #f3f6f5; color: #143536; }
 .hero p { margin: 0; color: #b8d3ce; }
 .hero .eyebrow { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.12em; margin-bottom: 8px; }
 .foot { color: #4c6668; font-size: 0.85rem; padding: 16px 0 32px; }
+.ant-tabs-nav { margin-bottom: 12px; }
+.ant-card-head-title, .ant-card-extra { white-space: normal; }
+@media (max-width: 767px) {
+  .shell { width: calc(100% - 24px); }
+  .hero { padding: 24px 0 18px; margin-bottom: 16px; }
+  .filters { display: grid !important; grid-template-columns: 1fr 1fr; gap: 12px !important; }
+  .filters > label { min-width: 0 !important; }
+  .filters > label:nth-child(3) { grid-column: 1 / -1; }
+  .ant-tabs-nav-wrap { overflow-x: auto; }
+  .ant-tabs-extra-content { width: 100%; padding-bottom: 8px; }
+  .ant-tabs-extra-content .ant-btn { width: 100%; }
+  .ant-card-head { padding: 0 12px; flex-wrap: wrap; }
+  .ant-card-head-wrapper { flex-wrap: wrap; gap: 4px; padding: 8px 0; }
+  .ant-card-body { padding: 8px !important; }
+  .map-toolbar { justify-content: space-between !important; }
+  .map-toolbar .ant-select { flex: 1; }
+  .ant-table-wrapper { overflow-x: auto; }
+}
