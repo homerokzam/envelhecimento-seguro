@@ -41,7 +41,7 @@ class AnalyticsTests(unittest.TestCase):
 
     def test_years_come_from_data_and_load_requires_a_file(self):
         rows = (Row(2025, "DF", "60–69", "F", 1, 1000, 0, 4, 1, 100),)
-        self.assertEqual(parse_filters({}, (2024, 2025))["end"], 2024)
+        self.assertEqual(parse_filters({}, (2024, 2025, 2026))["end"], 2025)  # padrão limitado ao período do estudo
         self.assertEqual(parse_filters({}, (2025,))["start"], 2025)
         with self.assertRaises(ValueError):
             parse_filters({"start": ["2025"], "end": ["2024"]}, (2024, 2025))

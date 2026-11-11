@@ -18,7 +18,7 @@ import { Perfil } from './tabs/Perfil'
 export function App() {
   const { start, end, uf, age, sex, tab, setTab, normalizeYears } = useUi()
   const filters = { start, end, uf, age, sex }
-  // os anos válidos vêm do estado da base; só consulta depois de ajustar o padrão 2015–2024 a eles
+  // os anos válidos vêm do estado da base; só consulta depois de ajustar o padrão 2019–2025 a eles
   const baseYears = useDatasetStatus().data?.metadata?.years
   const yearsReady = !baseYears?.length || (baseYears.includes(start) && baseYears.includes(end))
   useEffect(() => { if (baseYears?.length) normalizeYears(baseYears) }, [baseYears?.join(','), normalizeYears])
@@ -27,7 +27,7 @@ export function App() {
   const result = query.data
   const data: Dashboard | undefined = result && !result.empty ? result : undefined
 
-  // as listas de ano vêm dos dados; o padrão 2015–2024 se ajusta ao que existe
+  // as listas de ano vêm dos dados; o padrão 2019–2025 se ajusta ao que existe
   useEffect(() => { if (data) normalizeYears(data.options.years) }, [data?.options.years.join(','), normalizeYears])
 
   const tabs: { key: TabKey; label: string; children: React.ReactNode }[] = data ? [

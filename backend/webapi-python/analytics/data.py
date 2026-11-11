@@ -12,7 +12,8 @@ STATES = dict(zip(
 AGES = ("60–69", "70–79", "80+")
 SEXES = ("F", "M")
 IGNORED_SEX = "I"  # só contagens; sem população, entra apenas em "Ambos"
-FIRST_YEAR, DEFAULT_LAST_YEAR = 2015, 2024
+FIRST_YEAR, DEFAULT_LAST_YEAR = 2015, 2025
+FOCUS_FIRST_YEAR = 2019  # foco do estudo (2019–2025); a base guarda desde 2015 para comparação
 # Amostra real e pequena (~72 arquivos), só para uso local; inclui o DF porque é escopo do piloto
 SAMPLE_YEARS = [2023, 2024]
 SAMPLE_UFS = ["DF", "GO", "AP"]
@@ -103,7 +104,7 @@ def parse_filters(query, years=tuple(range(FIRST_YEAR, DEFAULT_LAST_YEAR + 1))):
     if set(query) - allowed or any(len(values) != 1 for values in query.values()):
         raise ValueError("Filtros desconhecidos ou duplicados.")
     values = {key: value[0] for key, value in query.items()}
-    default_start = FIRST_YEAR if FIRST_YEAR in years else years[0]
+    default_start = FOCUS_FIRST_YEAR if FOCUS_FIRST_YEAR in years else years[0]
     default_end = DEFAULT_LAST_YEAR if DEFAULT_LAST_YEAR in years else years[-1]
     start, end = int(values.get("start", default_start)), int(values.get("end", default_end))
     uf, age, sex = (values.get(key, "") for key in ("uf", "age", "sex"))

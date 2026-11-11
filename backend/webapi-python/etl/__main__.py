@@ -10,7 +10,7 @@ def main():
     parser = argparse.ArgumentParser(prog="etl")
     parser.add_argument("command", choices=("build",))
     parser.add_argument("--refresh", action="store_true", help="rebaixa os meses mais recentes")
-    parser.add_argument("--years", help="anos separados por vírgula (padrão: 2015–2024)")
+    parser.add_argument("--years", help="anos separados por vírgula (padrão: 2015–2025)")
     parser.add_argument("--ufs", help="UFs separadas por vírgula: gera uma amostra real, só para uso local")
     parser.add_argument("--workers", type=int, help="UFs lidas ao mesmo tempo (padrão: ETL_WORKERS ou 6)")
     parser.add_argument("--sample", action="store_true",

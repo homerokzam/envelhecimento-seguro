@@ -20,7 +20,7 @@ def detect_environment():
 
 
 ENVIRONMENT = detect_environment()
-EXPECTED_FILES = 27 * 12 * 10  # estimativa exibida antes do primeiro download (2015–2024)
+EXPECTED_FILES = 27 * 12 * 11  # estimativa exibida antes do primeiro download (2015–2025)
 
 
 class State:
